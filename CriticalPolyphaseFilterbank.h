@@ -35,6 +35,7 @@ public:
       cudaStream_t stream);
   ~CriticalPolyphaseFilterbank();
   CriticalPolyphaseFilterbank(CriticalPolyphaseFilterbank const &) = delete;
+
   /**
   * @brief Apply the polyphase filter to a block of timeseries data
   * This function will call the other process function with the stream argument
