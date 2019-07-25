@@ -3,14 +3,6 @@
 
 #include <thrust/extrema.h>
 
-//__global__ void testValue(float* v, float value, size_t N)
-//{
-//  for (int i = blockIdx.x * blockDim.x + threadIdx.x; (i < N);
-//       i += blockDim.x * gridDim.x)
-//  {
-//    assert(v[i] == value);
-//  }
-//}
 
 TEST(FIRFilterKernel, TestSum)
 {

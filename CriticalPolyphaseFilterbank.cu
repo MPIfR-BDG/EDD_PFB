@@ -96,6 +96,34 @@ __global__ void CPF_Fir_shared_32bit(const float *__restrict__ d_data,
 }
 
 
+
+// FIR filter with Kaiser Window  - on GPU to avoid additional dependency, not
+// for performance reasons as calculated only once anyway.
+__global__ void calculateKaiserCoeff(float* coeff, size_t N, float pialpha, float fc)
+{
+  float norm = cyl_bessel_i0f(pialpha);
+  for (int i = blockIdx.x * blockDim.x + threadIdx.x; (i < N);
+       i += blockDim.x * gridDim.x)
+  {
+    const float t = (2. * i) / N - 1;
+    const float wn = cyl_bessel_i0f(pialpha * sqrt(1. - t * t)) / norm;
+
+    // sin(x) / x at x=0 is not defined. To avoid branching we use small
+    // offset of 1E-128 everywhere. ToDo: Check normalization for missing factors 2 or pi.
+    const float hn = 1. / (float(i) - float(N/2.) + 1E-128) * sin(2. * fc * (float(i) - float(N/2.) + 1E-128));
+    coeff[i] = hn * wn;
+  }
+}
+
+
+void calculateKaiserCoefficients(CriticalPolyphaseFilterbank::FilterCoefficientsType &filterCoefficients, float pialpha, float fc)
+{
+  calculateKaiserCoeff<<<4, 1024>>>(thrust::raw_pointer_cast(filterCoefficients.data()), filterCoefficients.size(), pialpha, fc);
+}
+
+
+
+
 void FIRFilter(const thrust::device_vector<float> &input,
     thrust::device_vector<float> &output, const
     thrust::device_vector<float> &filterCoefficients, size_t fftSize,

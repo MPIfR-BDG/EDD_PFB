@@ -58,3 +58,8 @@ public:
   void process(const thrust::device_vector<float> &input,
                thrust::device_vector<cufftComplex> &output);
 };
+
+
+/* Fills the filterCoefficients vector with valus according to a FIR filter
+ * with Kiser Window with parameters pialpha and critical frequency fc*/
+void calculateKaiserCoefficients(CriticalPolyphaseFilterbank::FilterCoefficientsType &filterCoefficients, float pialpha, float fc);
