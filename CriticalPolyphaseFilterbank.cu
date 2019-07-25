@@ -22,6 +22,7 @@ static const size_t SUBBLOCK_SIZE =
     (DATA_SIZE + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK + 1;
 static const size_t THXPERWARP = 32;
 
+
 /* GPU kernel for a FIR Filter.
 Implementation is based on
 https://github.com/AstroAccelerateOrg/astro-accelerate/blob/master/lib/AstroAccelerate/PPF/GPU/SM/32bit/SM-32bit/SM-maxwell-32bit.cu
@@ -95,6 +96,29 @@ __global__ void CPF_Fir_shared_32bit(const float *__restrict__ d_data,
 }
 
 
+void FIRFilter(const thrust::device_vector<float> &input,
+    thrust::device_vector<float> &output, const
+    thrust::device_vector<float> &filterCoefficients, size_t fftSize,
+    size_t nTaps, size_t nSpectra, cudaStream_t stream)
+{
+  output.resize(fftSize * nSpectra);
+  const size_t SM_Columns = (DATA_SIZE / THXPERWARP - nTaps + 1);
+  const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
+  const size_t nCUDAblocks_x = (size_t)(fftSize / THXPERWARP);
+
+  dim3 gridSize(nCUDAblocks_x, nCUDAblocks_y,
+                1);                        // nCUDAblocks_y goes through spectra
+  dim3 blockSize(THREADS_PER_BLOCK, 1, 1); // nCUDAblocks_x goes through fftSize
+
+  CPF_Fir_shared_32bit<<<gridSize, blockSize, 0, stream>>>(
+      thrust::raw_pointer_cast(&input[0]),
+      thrust::raw_pointer_cast(&output[0]),
+      thrust::raw_pointer_cast(&filterCoefficients[0]), fftSize, nTaps,
+      nSpectra);
+}
+
+
+
 CriticalPolyphaseFilterbank::CriticalPolyphaseFilterbank(
     std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra,
     FilterCoefficientsType const &filterCoefficients, cudaStream_t stream)
@@ -119,19 +143,8 @@ CriticalPolyphaseFilterbank::~CriticalPolyphaseFilterbank() {
 void CriticalPolyphaseFilterbank::process(
     const thrust::device_vector<float> &input,
     thrust::device_vector<cufftComplex> &output) {
-  const size_t SM_Columns = (DATA_SIZE / THXPERWARP - nTaps + 1);
-  const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
-  const size_t nCUDAblocks_x = (size_t)(fftSize / THXPERWARP);
 
-  dim3 gridSize(nCUDAblocks_x, nCUDAblocks_y,
-                1);                        // nCUDAblocks_y goes through spectra
-  dim3 blockSize(THREADS_PER_BLOCK, 1, 1); // nCUDAblocks_x goes through fftSize
-
-  CPF_Fir_shared_32bit<<<gridSize, blockSize, 0, stream>>>(
-      thrust::raw_pointer_cast(&input[0]),
-      thrust::raw_pointer_cast(&firOutput[0]),
-      thrust::raw_pointer_cast(&filterCoefficients[0]), fftSize, nTaps,
-      nSpectra);
+  FIRFilter(input, firOutput, filterCoefficients, fftSize, nTaps, nSpectra, stream);
 
   cufftResult error =
       cufftExecR2C(plan, (cufftReal *)thrust::raw_pointer_cast(&firOutput[0]),

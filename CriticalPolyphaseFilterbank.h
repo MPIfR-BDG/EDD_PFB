@@ -4,6 +4,14 @@
 #include <cuda.h>
 #include <thrust/device_vector.h>
 
+
+/* FIR Filter. */
+void FIRFilter(const thrust::device_vector<float> &input,
+    thrust::device_vector<float> &output, const
+    thrust::device_vector<float> &filterCoefficients, size_t fftSize,
+    size_t nTaps, size_t nSpectra, cudaStream_t stream = NULL);
+
+
 class CriticalPolyphaseFilterbank {
 public:
   typedef thrust::device_vector<float> FilterCoefficientsType;
