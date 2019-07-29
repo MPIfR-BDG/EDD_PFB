@@ -4,4 +4,4 @@
 [submodule "thirdparty/psrdada_cpp"]
 	path = thirdparty/psrdada_cpp
 	url = https://github.com/TobiasWinchen/psrdada_cpp.git
-	branch = devel
+	branch = lib

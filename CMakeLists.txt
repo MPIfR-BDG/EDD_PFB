@@ -7,8 +7,12 @@ include_directories(${CUDA_TOOLKIT_INCLUDE})
 list(APPEND CUDA_NVCC_FLAGS -DENABLE_CUDA --std c++11 -Wno-deprecated-gpu-targets --ptxas-options=-v  --generate-line-info)
 
 
+add_subdirectory(thirdparty/psrdada_cpp)
+
+
 cuda_add_executable(pfb main.cu CriticalPolyphaseFilterbank.cu)
-target_link_libraries(pfb ${CUDA_CUFFT_LIBRARIES})
+target_link_libraries(pfb ${CUDA_CUFFT_LIBRARIES} ${PSRDADA_CPP})
+
 
 
 add_subdirectory(thirdparty/googletest)
