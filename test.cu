@@ -16,7 +16,7 @@ TEST(FIRFilterKernel, TestSum)
   {
     for (const size_t &fftSize: {64, 128})
     {
-      CriticalPolyphaseFilterbank::FilterCoefficientsType filterCoefficients(fftSize * nTaps, 1.f);
+      FilterCoefficientsType filterCoefficients(fftSize * nTaps, 1.f);
       thrust::device_vector<float> input((nSpectra + nTaps - 1) * fftSize, 1.f);
       thrust::device_vector<float> output;
 

@@ -6,13 +6,14 @@
 
 #include "CriticalPolyphaseFilterbank.h"
 
+#include "psrdada_cpp/dada_null_sink.hpp"
 
 
 int main(int argc, char** argv)
 {
-  float f = 1./3;
-  if (argc == 2)
-    f = atof(argv[1]);
+  //float f = 1./3;
+  //if (argc == 2)
+  //  f = atof(argv[1]);
 
   size_t fft_length = 128;
   size_t nTap = 4;
@@ -22,7 +23,7 @@ int main(int argc, char** argv)
 	cudaStream_t stream;
   cudaStreamCreate( &stream );
 
-  CriticalPolyphaseFilterbank::FilterCoefficientsType filterCoefficients(fft_length * nTap);
+  FilterCoefficientsType filterCoefficients(fft_length * nTap);
 
   // Window with a critical frequency at the number of channels. pialhpa = 8 is
   // a non-optimized choice.
@@ -30,7 +31,8 @@ int main(int argc, char** argv)
 
   cudaDeviceSynchronize();
 
-  CriticalPolyphaseFilterbank ppf(fft_length, nTap, nSpectra, filterCoefficients, stream);
+  psrdada_cpp::NullSink sink;
+  CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, nTap, nSpectra, 8., filterCoefficients, sink);
 
   // generate input
   thrust::device_vector<float> data_input((nSpectra + nTap- 1) * fft_length);\

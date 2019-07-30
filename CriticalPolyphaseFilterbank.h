@@ -4,6 +4,12 @@
 #include <cuda.h>
 #include <thrust/device_vector.h>
 
+#include "psrdada_cpp/common.hpp"
+#include "psrdada_cpp/raw_bytes.hpp"
+#include "psrdada_cpp/double_device_buffer.cuh"
+#include "psrdada_cpp/double_host_buffer.cuh"
+#include "psrdada_cpp/cuda_utils.hpp"
+#include "psrdada_cpp/Unpacker.cuh"
 
 /* FIR Filter. */
 void FIRFilter(const thrust::device_vector<float> &input,
@@ -12,20 +18,36 @@ void FIRFilter(const thrust::device_vector<float> &input,
     size_t nTaps, size_t nSpectra, cudaStream_t stream = NULL);
 
 
-class CriticalPolyphaseFilterbank {
-public:
-  typedef thrust::device_vector<float> FilterCoefficientsType;
+typedef thrust::device_vector<float> FilterCoefficientsType;
 
+
+template <class HandlerType>
+class CriticalPolyphaseFilterbank {
 private:
   FilterCoefficientsType filterCoefficients;
   std::size_t nTaps;
   std::size_t fftSize;
   std::size_t nSpectra;
+  std::size_t _call_count;
+  std::size_t _nBits;
 
-  cudaStream_t stream;
+  HandlerType &_handler;
+
   cufftHandle plan;
+  cudaStream_t _h2d_stream;
+  cudaStream_t _proc_stream;
+  cudaStream_t _d2h_stream;
 
+  std::unique_ptr<psrdada_cpp::Unpacker> _unpacker;
+
+  // io douible buffer
+  psrdada_cpp::DoubleDeviceBuffer<uint64_t> inputData;
+  psrdada_cpp::DoubleDeviceBuffer<cufftComplex> outputData_d;
+  psrdada_cpp::DoubleHostBuffer<cufftComplex> outputData_h;
+
+  // scratch data
 	thrust::device_vector<float> firOutput;
+	thrust::device_vector<float> unpackedData;
 public:
   /**
   * @brief Construct a new critically sampled polyphase filterbank
@@ -38,11 +60,13 @@ public:
   * @detail The number of filter coefficients should be equal to ntaps x nchans.
   */
   explicit CriticalPolyphaseFilterbank(
-      std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra,
+      std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra, std::size_t nBits,
       FilterCoefficientsType const &filterCoefficients,
-      cudaStream_t stream);
+      HandlerType &handler);
+
   ~CriticalPolyphaseFilterbank();
   CriticalPolyphaseFilterbank(CriticalPolyphaseFilterbank const &) = delete;
+
 
   /**
   * @brief Apply the polyphase filter to a block of timeseries data
@@ -57,9 +81,15 @@ public:
   */
   void process(const thrust::device_vector<float> &input,
                thrust::device_vector<cufftComplex> &output);
+
+  void init(psrdada_cpp::RawBytes &block);
+  bool operator()(psrdada_cpp::RawBytes &block);
+
 };
 
 
 /* Fills the filterCoefficients vector with valus according to a FIR filter
  * with Kiser Window with parameters pialpha and critical frequency fc*/
-void calculateKaiserCoefficients(CriticalPolyphaseFilterbank::FilterCoefficientsType &filterCoefficients, float pialpha, float fc);
+void calculateKaiserCoefficients(FilterCoefficientsType &filterCoefficients, float pialpha, float fc);
+
+#include "CriticalPolyphaseFilterbank.cu"

@@ -116,7 +116,7 @@ __global__ void calculateKaiserCoeff(float* coeff, size_t N, float pialpha, floa
 }
 
 
-void calculateKaiserCoefficients(CriticalPolyphaseFilterbank::FilterCoefficientsType &filterCoefficients, float pialpha, float fc)
+void calculateKaiserCoefficients(FilterCoefficientsType &filterCoefficients, float pialpha, float fc)
 {
   calculateKaiserCoeff<<<4, 1024>>>(thrust::raw_pointer_cast(filterCoefficients.data()), filterCoefficients.size(), pialpha, fc);
 }
@@ -147,40 +147,143 @@ void FIRFilter(const thrust::device_vector<float> &input,
 
 
 
-CriticalPolyphaseFilterbank::CriticalPolyphaseFilterbank(
-    std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra,
-    FilterCoefficientsType const &filterCoefficients, cudaStream_t stream)
-    : fftSize(fftSize), nTaps(nTaps), nSpectra(nSpectra),
-      filterCoefficients(filterCoefficients), stream(stream) {
-  cufftResult error = cufftPlan1d(&plan, fftSize, CUFFT_R2C, nSpectra);
-  cufftSetStream(plan, stream);
+template <class HandlerType>
+CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
+    std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra,std::size_t nBits,
+    FilterCoefficientsType const &filterCoefficients,  HandlerType &handler) : fftSize(fftSize), nTaps(nTaps), nSpectra(nSpectra), _nBits(nBits),
+      filterCoefficients(filterCoefficients),  _handler(handler), _call_count(0)
+{
+  BOOST_LOG_TRIVIAL(info)
+      << "Creating new CriticalPolyphaseFilterbank instance with parameters: \n"
+      << "  fftSize              " << fftSize << "\n"
+      << "  nTaps                " << nTaps << "\n"
+      << "  nSpectra             " << nSpectra << "\n"
+      << "  nBits                " << nBits;
 
-  if (CUFFT_SUCCESS != error) {
-    printf("CUFFT error: %d\n", error);
-  }
+  CUDA_ERROR_CHECK(cudaStreamCreate(&_h2d_stream));
+  CUDA_ERROR_CHECK(cudaStreamCreate(&_proc_stream));
+  CUDA_ERROR_CHECK(cudaStreamCreate(&_d2h_stream));
+
+  cufftResult error = cufftPlan1d(&plan, fftSize, CUFFT_R2C, nSpectra);
+  CUFFT_ERROR_CHECK(cufftSetStream(plan, _proc_stream));
 
   firOutput.resize(nSpectra * fftSize);
+  BOOST_LOG_TRIVIAL(debug) << "FIR Output size: " <<  firOutput.size();
+  unpackedData.resize((nSpectra + nTaps - 1) * fftSize);
+  outputData_h.resize((nSpectra + nTaps - 1) * fftSize);
+  BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size();
+
+  _unpacker.reset(new psrdada_cpp::Unpacker( _proc_stream ));
 }
 
 
-CriticalPolyphaseFilterbank::~CriticalPolyphaseFilterbank() {
+template <class HandlerType>
+CriticalPolyphaseFilterbank<HandlerType>::~CriticalPolyphaseFilterbank() {
   cufftDestroy(plan);
 }
 
 
-void CriticalPolyphaseFilterbank::process(
+template <class HandlerType>
+void CriticalPolyphaseFilterbank<HandlerType>::process(
     const thrust::device_vector<float> &input,
-    thrust::device_vector<cufftComplex> &output) {
+    thrust::device_vector<cufftComplex> &output)
+{
 
-  FIRFilter(input, firOutput, filterCoefficients, fftSize, nTaps, nSpectra, stream);
+  FIRFilter(input, firOutput, filterCoefficients, fftSize, nTaps, nSpectra, _proc_stream);
+  CUDA_ERROR_CHECK(cudaStreamSynchronize(_proc_stream));
 
-  cufftResult error =
-      cufftExecR2C(plan, (cufftReal *)thrust::raw_pointer_cast(&firOutput[0]),
-                   (cufftComplex *)thrust::raw_pointer_cast(&output[0]));
+  CUFFT_ERROR_CHECK(cufftExecR2C(plan, (cufftReal *)thrust::raw_pointer_cast(&firOutput[0]),
+                   (cufftComplex *)thrust::raw_pointer_cast(&output[0])));
 
-  if (CUFFT_SUCCESS != error) {
-    printf("CUFFT error: %d\n", error);
+}
+
+
+
+template <class HandlerType>
+void CriticalPolyphaseFilterbank<HandlerType>::init(psrdada_cpp::RawBytes &block)
+{
+  BOOST_LOG_TRIVIAL(debug) << "CriticalPolyphaseFilterbank init called";
+
+_handler.init(block);
+}
+
+
+template <class HandlerType>
+bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes &block)
+{
+  BOOST_LOG_TRIVIAL(debug)
+    << "CriticalPolyphaseFilterbank operator() called (count = )"
+    << _call_count << ")";
+
+  CUDA_ERROR_CHECK(cudaStreamSynchronize(_h2d_stream));
+
+  inputData.swap();
+  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to device (" << inputData.size() * sizeof(inputData.a()[0]) << " bytes)";
+
+  CUDA_ERROR_CHECK(cudaMemcpyAsync(static_cast<void *>(inputData.a_ptr()),
+                                 static_cast<void *>(block.ptr()),
+                                  inputData.size() * sizeof(inputData.a()[0]),
+                                  cudaMemcpyHostToDevice,
+                                 _h2d_stream));
+  ////////////////////////////////////////////////////////////////////////
+  if (_call_count == 1) {
+    return false;
   }
 
-  cudaDeviceSynchronize();
+  BOOST_LOG_TRIVIAL(debug) << "  - Unpacking raw voltages";
+  switch (_nBits) {
+    case 8:
+      _unpacker->unpack<8>(inputData.a(), unpackedData);
+      break;
+    case 12:
+      _unpacker->unpack<12>(inputData.a(), unpackedData);
+      break;
+    default:
+      throw std::runtime_error("Unsupported number of bits");
+  }
+
+  BOOST_LOG_TRIVIAL(debug) << "  - Processing ...";
+  process(unpackedData, outputData_d.b());
+
+  ////////////////////////////////////////////////////////////////////////
+  if (_call_count == 2){
+    return false;
+  }
+  CUDA_ERROR_CHECK(cudaStreamSynchronize(_d2h_stream));
+  outputData_d.swap();
+
+  // Drop DC channel during copy
+  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to host (" << outputData_h.size() * sizeof(outputData_h.b()[0]) << " bytes)";
+   CUDA_ERROR_CHECK(
+       cudaMemcpy2DAsync(static_cast<void *>(outputData_h.b_ptr()),
+         sizeof(float) * (fftSize / 2) * nSpectra,
+        static_cast<void *>(outputData_d.a_ptr() + 1),
+         sizeof(float) * (fftSize / 2+1) * nSpectra,
+         sizeof(float) * fftSize / 2,
+         nSpectra,
+         cudaMemcpyDeviceToHost, _d2h_stream));
+
+  ////////////////////////////////////////////////////////////////////////
+  if (_call_count == 3) {
+    return false;
+  }
+
+  BOOST_LOG_TRIVIAL(debug) << "  - Calling handler";
+  psrdada_cpp::RawBytes bytes(reinterpret_cast<char *>(outputData_h.b_ptr()),
+                 outputData_h.size(),
+                 outputData_h.size());
+  // The handler can't do anything asynchronously without a copy here
+  // as it would be unsafe (given that it does not own the memory it
+  // is being passed).
+
+  _handler(bytes);
+  return false;
+
+
+
+
+
+//_handler(block);
 }
+
+
