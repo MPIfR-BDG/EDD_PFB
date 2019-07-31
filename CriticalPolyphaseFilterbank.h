@@ -40,7 +40,7 @@ private:
 
   std::unique_ptr<psrdada_cpp::Unpacker> _unpacker;
 
-  // io douible buffer
+  // io double buffer
   psrdada_cpp::DoubleDeviceBuffer<uint64_t> inputData;
   psrdada_cpp::DoubleDeviceBuffer<cufftComplex> outputData_d;
   psrdada_cpp::DoubleHostBuffer<cufftComplex> outputData_h;

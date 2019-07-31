@@ -11,7 +11,7 @@ add_subdirectory(thirdparty/psrdada_cpp)
 include_directories(thirdparty/psrdada_cpp/)
 
 find_package(Boost COMPONENTS log program_options REQUIRED)
-include_directories(${Boost_INCLUDE_DIR})
+include_directories(${Boost_INCLUDE_DIR} ${PSRDADA_INCLUDE_DIR})
 cuda_add_executable(pfb main.cu)
 target_link_libraries(pfb ${CUDA_CUFFT_LIBRARIES} psrdada_cpp ${Boost_LIBRARIES})
 
@@ -25,6 +25,6 @@ link_directories(${gtest_BINARY_DIR}/src)
 
 enable_testing()
 cuda_add_executable(pfb_test test.cu)
-target_link_libraries(pfb_test gtest gtest_main pthread  ${CUDA_CUFFT_LIBRARIES} ${DEPENDENCY_LIBRARIES} ${Boost_LIBRARIES})
+target_link_libraries(pfb_test gtest gtest_main pthread  ${CUDA_CUFFT_LIBRARIES} ${Boost_LIBRARIES})
 add_test(PolyphaseFilterBank pfb_test)
 
