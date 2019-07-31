@@ -12,8 +12,9 @@
 #include "psrdada_cpp/Unpacker.cuh"
 
 /* FIR Filter. */
-void FIRFilter(const thrust::device_vector<float> &input,
-    thrust::device_vector<float> &output, const
+void FIRFilter(
+    const float *input,
+    cufftComplex *output,
     thrust::device_vector<float> &filterCoefficients, size_t fftSize,
     size_t nTaps, size_t nSpectra, cudaStream_t stream = NULL);
 

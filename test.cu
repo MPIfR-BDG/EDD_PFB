@@ -18,9 +18,10 @@ TEST(FIRFilterKernel, TestSum)
     {
       FilterCoefficientsType filterCoefficients(fftSize * nTaps, 1.f);
       thrust::device_vector<float> input((nSpectra + nTaps - 1) * fftSize, 1.f);
-      thrust::device_vector<float> output;
+      thrust::device_vector<float> output(nSpectra * fftSize);
 
-      FIRFilter(input, output, filterCoefficients, fftSize, nTaps, nSpectra, NULL);
+      FIRFilter(thrust::raw_pointer_cast(&input[0]), thrust::raw_pointer_cast(&output[0]),
+          filterCoefficients, fftSize, nTaps, nSpectra, NULL);
 
       // FIRFilter shoould make shure that the output is large enough
       EXPECT_EQ(output.size(), nSpectra * fftSize) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;

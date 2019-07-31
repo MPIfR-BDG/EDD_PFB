@@ -122,14 +122,10 @@ void calculateKaiserCoefficients(FilterCoefficientsType &filterCoefficients, flo
 }
 
 
-
-
-void FIRFilter(const thrust::device_vector<float> &input,
-    thrust::device_vector<float> &output, const
-    thrust::device_vector<float> &filterCoefficients, size_t fftSize,
-    size_t nTaps, size_t nSpectra, cudaStream_t stream)
+void FIRFilter(const float *input,
+    float *output, const thrust::device_vector<float> &filterCoefficients,
+    size_t fftSize, size_t nTaps, size_t nSpectra, cudaStream_t stream)
 {
-  output.resize(fftSize * nSpectra);
   const size_t SM_Columns = (DATA_SIZE / THXPERWARP - nTaps + 1);
   const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
   const size_t nCUDAblocks_x = (size_t)(fftSize / THXPERWARP);
@@ -139,10 +135,8 @@ void FIRFilter(const thrust::device_vector<float> &input,
   dim3 blockSize(THREADS_PER_BLOCK, 1, 1); // nCUDAblocks_x goes through fftSize
 
   CPF_Fir_shared_32bit<<<gridSize, blockSize, 0, stream>>>(
-      thrust::raw_pointer_cast(&input[0]),
-      thrust::raw_pointer_cast(&output[0]),
-      thrust::raw_pointer_cast(&filterCoefficients[0]), fftSize, nTaps,
-      nSpectra);
+      input, output, thrust::raw_pointer_cast(&filterCoefficients[0]), fftSize,
+      nTaps, nSpectra);
 }
 
 
@@ -169,8 +163,10 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
 
   firOutput.resize(nSpectra * fftSize);
   BOOST_LOG_TRIVIAL(debug) << "FIR Output size: " <<  firOutput.size();
-  unpackedData.resize((nSpectra + nTaps - 1) * fftSize);
-  outputData_h.resize((nSpectra + nTaps - 1) * fftSize);
+  unpackedData.resize((nSpectra + (nTaps-1)) * fftSize);
+  thrust::fill(thrust::device, unpackedData.begin(), unpackedData.end(), 0);
+
+  outputData_h.resize(nSpectra * fftSize / 2); // we drop the DC channel during device to host copy
   BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size();
 
   _unpacker.reset(new psrdada_cpp::Unpacker( _proc_stream ));
@@ -189,7 +185,9 @@ void CriticalPolyphaseFilterbank<HandlerType>::process(
     thrust::device_vector<cufftComplex> &output)
 {
 
-  FIRFilter(input, firOutput, filterCoefficients, fftSize, nTaps, nSpectra, _proc_stream);
+  FIRFilter( thrust::raw_pointer_cast(&input[0]),
+      thrust::raw_pointer_cast(&firOutput[0]), filterCoefficients, fftSize,
+      nTaps, nSpectra, _proc_stream);
   CUDA_ERROR_CHECK(cudaStreamSynchronize(_proc_stream));
 
   CUFFT_ERROR_CHECK(cufftExecR2C(plan, (cufftReal *)thrust::raw_pointer_cast(&firOutput[0]),
@@ -231,12 +229,13 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   }
 
   BOOST_LOG_TRIVIAL(debug) << "  - Unpacking raw voltages";
+  size_t offset = (ntaps - 1) * fftSize;
   switch (_nBits) {
     case 8:
-      _unpacker->unpack<8>(inputData.a(), unpackedData);
+      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()), thrust::raw_pointer_cast(unpackedData.data()[offset]), inputData.size() );
       break;
     case 12:
-      _unpacker->unpack<12>(inputData.a(), unpackedData);
+      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()), thrust::raw_pointer_cast(unpackedData.data()[offset]), inputData.size() );
       break;
     default:
       throw std::runtime_error("Unsupported number of bits");
@@ -244,6 +243,14 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
 
   BOOST_LOG_TRIVIAL(debug) << "  - Processing ...";
   process(unpackedData, outputData_d.b());
+
+  // copy overlap to beginning of new block
+  CUDA_ERROR_CHECK(cudaMemcpyAsync(static_cast<void *>(&unpackedData.data()[0]),
+                                 static_cast<void *>(&unpackedData.data()[unpackedData.size() - offset]),
+                                  offset * sizeof(unpackedData.data()[0]),
+                                  cudaMemcpyDeviceToDevice,
+                                 _proc_stream));
+
 
   ////////////////////////////////////////////////////////////////////////
   if (_call_count == 2){
