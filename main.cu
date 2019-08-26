@@ -14,6 +14,7 @@
 #include "psrdada_cpp/simple_file_writer.hpp"
 #include "psrdada_cpp/dada_input_stream.hpp"
 #include "psrdada_cpp/dada_output_stream.hpp"
+#include "psrdada_cpp/dada_client_base.hpp"
 
 const size_t ERROR_IN_COMMAND_LINE = 1;
 const size_t SUCCESS = 0;
@@ -95,12 +96,10 @@ int main(int argc, char** argv)
     }
 
 
-
   //float f = 1./3;
   //if (argc == 2)
   //  f = atof(argv[1]);
 
-  size_t nSpectra = 16384 * 16;
 
 	cudaStream_t stream;
   cudaStreamCreate( &stream );
@@ -154,6 +153,23 @@ int main(int argc, char** argv)
 
   BOOST_LOG_TRIVIAL(info) << "Running with  output_type: " << output_type;
   psrdada_cpp::MultiLog log("PFB");
+  psrdada_cpp::DadaClientBase client(input_key, log);
+  size_t bufferSize = client.data_buffer_size(); // buffer size in bit
+  if ((bufferSize * 8) % nbits != 0)
+  {
+      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a natural number of " << nbits << " bit encoded values!.";
+      throw std::runtime_error("EDD PFB: Bad size of input buffer.");
+  }
+
+  if ((bufferSize * 8 / nbits) % fft_length != 0)
+  {
+      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a multiple of " << fft_length << " values of "<< nbits << " bit!.";
+      throw std::runtime_error("EDD PFB: Bad size of input buffer.");
+  }
+  
+  size_t nSpectra = bufferSize * 8 / nbits / fft_length; 
+
+  BOOST_LOG_TRIVIAL(debug) << "Input buffer size " << bufferSize << " bytes. Generating " << nSpectra << " spectra of fft_length " << fft_length << " values.";
   if (output_type == "file")
   {
     psrdada_cpp::SimpleFileWriter sink(outputfilename);
