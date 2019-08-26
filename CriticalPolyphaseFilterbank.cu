@@ -1,5 +1,5 @@
 #include "CriticalPolyphaseFilterbank.h"
-
+#include <thrust/execution_policy.h>
 /*
 * Compatibility helper
 */
@@ -95,6 +95,12 @@ __global__ void CPF_Fir_shared_32bit(const float *__restrict__ d_data,
   }
 }
 
+__global__ void copy_overlap(float* __restrict__ unpackedData, size_t sizeOfData, size_t offset){
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; (i < offset);
+       i += blockDim.x * gridDim.x) {
+    unpackedData[i] = unpackedData[sizeOfData - offset + i];
+  }
+}
 
 
 // FIR filter with Kaiser Window  - on GPU to avoid additional dependency, not
@@ -161,11 +167,14 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
   cufftResult error = cufftPlan1d(&plan, fftSize, CUFFT_R2C, nSpectra);
   CUFFT_ERROR_CHECK(cufftSetStream(plan, _proc_stream));
 
-  firOutput.resize(nSpectra * fftSize);
-  BOOST_LOG_TRIVIAL(debug) << "FIR Output size: " <<  firOutput.size();
+  inputData.resize( nSpectra * fftSize * nBits / 64 );
   unpackedData.resize((nSpectra + (nTaps-1)) * fftSize);
+  firOutput.resize(nSpectra * fftSize);
+
+  BOOST_LOG_TRIVIAL(debug) << "FIR Output size: " <<  firOutput.size();
   thrust::fill(thrust::device, unpackedData.begin(), unpackedData.end(), 0);
 
+  outputData_d.resize(nSpectra * (fftSize / 2 + 1)); 
   outputData_h.resize(nSpectra * fftSize / 2); // we drop the DC channel during device to host copy
   BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size();
 
@@ -209,8 +218,9 @@ _handler.init(block);
 template <class HandlerType>
 bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes &block)
 {
+  _call_count++;
   BOOST_LOG_TRIVIAL(debug)
-    << "CriticalPolyphaseFilterbank operator() called (count = )"
+    << "CriticalPolyphaseFilterbank operator() called (count = "
     << _call_count << ")";
 
   CUDA_ERROR_CHECK(cudaStreamSynchronize(_h2d_stream));
@@ -229,13 +239,13 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   }
 
   BOOST_LOG_TRIVIAL(debug) << "  - Unpacking raw voltages";
-  size_t offset = (ntaps - 1) * fftSize;
+  size_t offset = (nTaps - 1) * fftSize;
   switch (_nBits) {
     case 8:
-      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()), thrust::raw_pointer_cast(unpackedData.data()[offset]), inputData.size() );
+      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()), thrust::raw_pointer_cast(&unpackedData.data()[offset]), inputData.size() );
       break;
     case 12:
-      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()), thrust::raw_pointer_cast(unpackedData.data()[offset]), inputData.size() );
+      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()), thrust::raw_pointer_cast(&unpackedData.data()[offset]), inputData.size() );
       break;
     default:
       throw std::runtime_error("Unsupported number of bits");
@@ -245,12 +255,7 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   process(unpackedData, outputData_d.b());
 
   // copy overlap to beginning of new block
-  CUDA_ERROR_CHECK(cudaMemcpyAsync(static_cast<void *>(&unpackedData.data()[0]),
-                                 static_cast<void *>(&unpackedData.data()[unpackedData.size() - offset]),
-                                  offset * sizeof(unpackedData.data()[0]),
-                                  cudaMemcpyDeviceToDevice,
-                                 _proc_stream));
-
+  copy_overlap<<<4, 1024, 0 , _proc_stream>>>(thrust::raw_pointer_cast(unpackedData.data()), unpackedData.size(), offset);
 
   ////////////////////////////////////////////////////////////////////////
   if (_call_count == 2){
@@ -261,12 +266,19 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
 
   // Drop DC channel during copy
   BOOST_LOG_TRIVIAL(debug) << "  - Copy data to host (" << outputData_h.size() * sizeof(outputData_h.b()[0]) << " bytes)";
+  
+  const size_t dpitch = (fftSize / 2);
+  const size_t spitch = (fftSize / 2 + 1);
+  const size_t width = fftSize / 2;
+  const size_t height = nSpectra;
+
+
    CUDA_ERROR_CHECK(
-       cudaMemcpy2DAsync(static_cast<void *>(outputData_h.b_ptr()),
-         sizeof(float) * (fftSize / 2) * nSpectra,
-        static_cast<void *>(outputData_d.a_ptr() + 1),
-         sizeof(float) * (fftSize / 2+1) * nSpectra,
-         sizeof(float) * fftSize / 2,
+       cudaMemcpy2DAsync((void *)(outputData_h.b_ptr()),
+         dpitch * sizeof(cufftComplex),
+        static_cast<void *>(outputData_d.b_ptr() + 1),
+         sizeof(cufftComplex) * spitch,
+         sizeof(cufftComplex) * width,
          nSpectra,
          cudaMemcpyDeviceToHost, _d2h_stream));
 
