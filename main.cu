@@ -1,4 +1,4 @@
-// Test programm for polyphase filterbank implementation
+// polyphase filterbank for the EDD project
 // 18 Jul 2019, Tobias Winchen
 
 #include <iostream>

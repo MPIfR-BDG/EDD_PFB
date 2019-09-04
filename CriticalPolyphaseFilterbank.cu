@@ -12,8 +12,8 @@ template <typename T> __device__ __forceinline__ T ldg(const T *ptr) {
 }
 
 
+// constants for filter kenerl execution
 static const size_t THREADS_PER_BLOCK = 512; //
-
 static const size_t COEFF_SIZE =
     512; // large enough to contain the filter coefficients
 static const size_t DATA_SIZE =
@@ -95,7 +95,10 @@ __global__ void CPF_Fir_shared_32bit(const float *__restrict__ d_data,
   }
 }
 
-__global__ void copy_overlap(float* __restrict__ unpackedData, size_t sizeOfData, size_t offset){
+
+// copy overlapping parts of block for FIR filter
+__global__ void copy_overlap(float* __restrict__ unpackedData, size_t
+    sizeOfData, size_t offset){
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; (i < offset);
        i += blockDim.x * gridDim.x) {
     unpackedData[i] = unpackedData[sizeOfData - offset + i];
@@ -105,7 +108,8 @@ __global__ void copy_overlap(float* __restrict__ unpackedData, size_t sizeOfData
 
 // FIR filter with Kaiser Window  - on GPU to avoid additional dependency, not
 // for performance reasons as calculated only once anyway.
-__global__ void calculateKaiserCoeff(float* coeff, size_t N, float pialpha, float fc)
+__global__ void calculateKaiserCoeff(float* coeff, size_t N, float pialpha,
+    float fc)
 {
   float norm = cyl_bessel_i0f(pialpha);
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; (i < N);
@@ -116,15 +120,19 @@ __global__ void calculateKaiserCoeff(float* coeff, size_t N, float pialpha, floa
 
     // sin(x) / x at x=0 is not defined. To avoid branching we use small
     // offset of 1E-128 everywhere. ToDo: Check normalization for missing factors 2 or pi.
-    const float hn = 1. / (float(i) - float(N/2.) + 1E-128) * sin(2. * fc * (float(i) - float(N/2.) + 1E-128));
+    const float hn = 1. / (float(i) - float(N/2.) + 1E-128)
+      * sin(2. * fc * (float(i) - float(N/2.) + 1E-128));
     coeff[i] = hn * wn;
   }
 }
 
 
-void calculateKaiserCoefficients(FilterCoefficientsType &filterCoefficients, float pialpha, float fc)
+void calculateKaiserCoefficients(FilterCoefficientsType &filterCoefficients,
+    float pialpha, float fc)
 {
-  calculateKaiserCoeff<<<4, 1024>>>(thrust::raw_pointer_cast(filterCoefficients.data()), filterCoefficients.size(), pialpha, fc);
+  calculateKaiserCoeff<<<4, 1024>>>
+    (thrust::raw_pointer_cast(filterCoefficients.data()),
+     filterCoefficients.size(), pialpha, fc);
 }
 
 
@@ -160,6 +168,14 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
       << "  nSpectra             " << nSpectra << "\n"
       << "  nBits                " << nBits;
 
+  if (filterCoefficients.size() != (nTaps * fftSize) )
+  {
+    BOOST_LOG_TRIVIAL(error) << "nTaps = " << nTaps
+      << ", fftSize = " << fftSize << "\n"
+      << "length of filter coefficients: " << filterCoefficients.size();
+    throw std::runtime_error("Bad length of filter coefficients!");
+  }
+
   CUDA_ERROR_CHECK(cudaStreamCreate(&_h2d_stream));
   CUDA_ERROR_CHECK(cudaStreamCreate(&_proc_stream));
   CUDA_ERROR_CHECK(cudaStreamCreate(&_d2h_stream));
@@ -174,7 +190,7 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
   BOOST_LOG_TRIVIAL(debug) << "FIR Output size: " <<  firOutput.size();
   thrust::fill(thrust::device, unpackedData.begin(), unpackedData.end(), 0);
 
-  outputData_d.resize(nSpectra * (fftSize / 2 + 1)); 
+  outputData_d.resize(nSpectra * (fftSize / 2 + 1));
   outputData_h.resize(nSpectra * fftSize / 2); // we drop the DC channel during device to host copy
   BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size();
 
@@ -210,8 +226,7 @@ template <class HandlerType>
 void CriticalPolyphaseFilterbank<HandlerType>::init(psrdada_cpp::RawBytes &block)
 {
   BOOST_LOG_TRIVIAL(debug) << "CriticalPolyphaseFilterbank init called";
-
-_handler.init(block);
+  _handler.init(block);
 }
 
 
@@ -226,7 +241,8 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   CUDA_ERROR_CHECK(cudaStreamSynchronize(_h2d_stream));
 
   inputData.swap();
-  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to device (" << inputData.size() * sizeof(inputData.a()[0]) << " bytes)";
+  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to device (" 
+    << inputData.size() * sizeof(inputData.a()[0]) << " bytes)";
 
   CUDA_ERROR_CHECK(cudaMemcpyAsync(static_cast<void *>(inputData.a_ptr()),
                                  static_cast<void *>(block.ptr()),
@@ -242,10 +258,14 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   size_t offset = (nTaps - 1) * fftSize;
   switch (_nBits) {
     case 8:
-      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()), thrust::raw_pointer_cast(&unpackedData.data()[offset]), inputData.size() );
+      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()),
+          thrust::raw_pointer_cast(&unpackedData.data()[offset]),
+          inputData.size() );
       break;
     case 12:
-      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()), thrust::raw_pointer_cast(&unpackedData.data()[offset]), inputData.size() );
+      _unpacker->unpack<8>(thrust::raw_pointer_cast(inputData.a_ptr()),
+          thrust::raw_pointer_cast(&unpackedData.data()[offset]),
+          inputData.size() );
       break;
     default:
       throw std::runtime_error("Unsupported number of bits");
@@ -255,7 +275,9 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   process(unpackedData, outputData_d.b());
 
   // copy overlap to beginning of new block
-  copy_overlap<<<4, 1024, 0 , _proc_stream>>>(thrust::raw_pointer_cast(unpackedData.data()), unpackedData.size(), offset);
+  copy_overlap<<<4, 1024, 0 ,
+    _proc_stream>>>(thrust::raw_pointer_cast(unpackedData.data()),
+        unpackedData.size(), offset);
 
   ////////////////////////////////////////////////////////////////////////
   if (_call_count == 2){
@@ -265,17 +287,16 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   outputData_d.swap();
 
   // Drop DC channel during copy
-  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to host (" << outputData_h.size() * sizeof(outputData_h.b()[0]) << " bytes)";
-  
+  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to host ("
+    << outputData_h.size() * sizeof(outputData_h.b()[0]) << " bytes)";
+
   const size_t dpitch = (fftSize / 2);
   const size_t spitch = (fftSize / 2 + 1);
   const size_t width = fftSize / 2;
-  const size_t height = nSpectra;
 
-
-   CUDA_ERROR_CHECK(
+  CUDA_ERROR_CHECK(
        cudaMemcpy2DAsync((void *)(outputData_h.b_ptr()),
-         dpitch * sizeof(cufftComplex),
+         sizeof(cufftComplex) * dpitch,
         static_cast<void *>(outputData_d.b_ptr() + 1),
          sizeof(cufftComplex) * spitch,
          sizeof(cufftComplex) * width,
@@ -291,18 +312,12 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   psrdada_cpp::RawBytes bytes(reinterpret_cast<char *>(outputData_h.b_ptr()),
                  outputData_h.size(),
                  outputData_h.size());
+
   // The handler can't do anything asynchronously without a copy here
   // as it would be unsafe (given that it does not own the memory it
   // is being passed).
-
   _handler(bytes);
   return false;
-
-
-
-
-
-//_handler(block);
 }
 
 
