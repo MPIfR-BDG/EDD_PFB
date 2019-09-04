@@ -58,7 +58,7 @@ int main(int argc, char** argv)
                        "The numbr of taps");
   desc.add_options()("fft_length,n", po::value<unsigned int>(&fft_length)->required(),
                        "The length of the FFT to perform on the data");
-  desc.add_options()("inbutbitdepth,b", po::value<unsigned int>(&nbits)->required(),
+  desc.add_options()("inputbitdepth,b", po::value<unsigned int>(&nbits)->required(),
                        "The number of bits per sample in the "
                        "packetiser output (8 or 12)");
   desc.add_options()(
