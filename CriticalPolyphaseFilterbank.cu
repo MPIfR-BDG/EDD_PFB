@@ -142,6 +142,10 @@ void FIRFilter(const float *input,
 {
   const size_t SM_Columns = (DATA_SIZE / THXPERWARP - nTaps + 1);
   const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
+  if (nCUDAblocks_y > 65535)
+  {
+    BOOST_LOG_TRIVIAL(error) << "Requested " << nCUDAblocks_y << " nCUDAblocks_y - maximum is 65536! Try reducing the size of the input buffer (or increasing the number of channels).";
+  }
   const size_t nCUDAblocks_x = (size_t)(fftSize / THXPERWARP);
 
   dim3 gridSize(nCUDAblocks_x, nCUDAblocks_y,

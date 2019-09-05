@@ -63,7 +63,7 @@ int main(int argc, char** argv)
                        "packetiser output (8 or 12)");
   desc.add_options()(
         "filtercoefficients,f", po::value<std::string>(&filtercoefficientsfile)->default_value(filtercoefficientsfile),
-        "txt file with filter coefficents. If empty, Default Kaiser coefficients will be calculated.  "
+        "txt file with filter coefficents. If empty, Kaiser coefficients will be calculated as default."
         );
   desc.add_options()(
         "log_level", po::value<std::string>()->default_value("info")->notifier(
@@ -96,11 +96,6 @@ int main(int argc, char** argv)
     }
 
 
-  //float f = 1./3;
-  //if (argc == 2)
-  //  f = atof(argv[1]);
-
-
 	cudaStream_t stream;
   cudaStreamCreate( &stream );
 
@@ -113,7 +108,7 @@ int main(int argc, char** argv)
     double pialhpa = 8.;
     double fc = 1./(fft_length / 2 + 1);
     BOOST_LOG_TRIVIAL(info) << "No filter coefficients provided. Calculating coefficients based on Kaiser Window with paramters:\n"
-      << "    pi * alpha = " << pialhpa << std::endl 
+      << "    pi * alpha = " << pialhpa << std::endl
       << "            fc = " << fc << " ( number of channels**(-1) )";
     calculateKaiserCoefficients(filterCoefficients, pialhpa, fc);
   }
@@ -166,8 +161,8 @@ int main(int argc, char** argv)
       BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a multiple of " << fft_length << " values of "<< nbits << " bit!.";
       throw std::runtime_error("EDD PFB: Bad size of input buffer.");
   }
-  
-  size_t nSpectra = bufferSize * 8 / nbits / fft_length; 
+
+  size_t nSpectra = bufferSize * 8 / nbits / fft_length;
 
   BOOST_LOG_TRIVIAL(debug) << "Input buffer size " << bufferSize << " bytes. Generating " << nSpectra << " spectra of fft_length " << fft_length << " values.";
   if (output_type == "file")
