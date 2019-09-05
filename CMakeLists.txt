@@ -15,6 +15,7 @@ include_directories(${Boost_INCLUDE_DIR} ${PSRDADA_INCLUDE_DIR})
 cuda_add_executable(pfb main.cu)
 target_link_libraries(pfb ${CUDA_CUFFT_LIBRARIES} psrdada_cpp ${Boost_LIBRARIES})
 
+install(TARGETS pfb DESTINATION bin)
 
 
 add_subdirectory(thirdparty/googletest)
