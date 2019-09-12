@@ -196,7 +196,7 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
 
   outputData_d.resize(nSpectra * (fftSize / 2 + 1));
   outputData_h.resize(nSpectra * fftSize / 2); // we drop the DC channel during device to host copy
-  BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size();
+  BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size() << " (complex values)";
 
   _unpacker.reset(new psrdada_cpp::Unpacker( _proc_stream ));
 }
@@ -229,9 +229,30 @@ void CriticalPolyphaseFilterbank<HandlerType>::process(
 template <class HandlerType>
 void CriticalPolyphaseFilterbank<HandlerType>::init(psrdada_cpp::RawBytes &block)
 {
-  BOOST_LOG_TRIVIAL(debug) << "CriticalPolyphaseFilterbank init called";
+  std::stringstream headerInfo;
+  headerInfo << "\n"
+      << "# PFB parameters: \n"
+      << "fftSize                  " << fftSize << "\n"
+      << "nTaps                    " << nTaps << "\n";
+  BOOST_LOG_TRIVIAL(debug) << "CriticalPolyphaseFilterbank init header info:\n" << headerInfo.str() ;
+
+  size_t bEnd = std::strlen(block.ptr());
+  if (bEnd + headerInfo.str().size() < block.total_bytes())
+  {
+    std::strcpy(block.ptr() + bEnd, headerInfo.str().c_str());  
+  }
+  else
+  {
+    BOOST_LOG_TRIVIAL(warning) << "Header of size " << block.total_bytes()
+      << " bytes already contains " << bEnd
+      << "bytes. Cannot add gated spectrometer info of size "
+      << headerInfo.str().size() << " bytes.";
+  }
+
   _handler.init(block);
-}
+
+
+  }
 
 
 template <class HandlerType>
@@ -289,6 +310,7 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   }
   CUDA_ERROR_CHECK(cudaStreamSynchronize(_d2h_stream));
   outputData_d.swap();
+  outputData_h.swap();
 
   // Drop DC channel during copy
   BOOST_LOG_TRIVIAL(debug) << "  - Copy data to host ("
@@ -313,7 +335,7 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   }
 
   BOOST_LOG_TRIVIAL(debug) << "  - Calling handler";
-  psrdada_cpp::RawBytes bytes(reinterpret_cast<char *>(outputData_h.b_ptr()),
+  psrdada_cpp::RawBytes bytes(reinterpret_cast<char *>(outputData_h.a_ptr()),
                  outputData_h.size(),
                  outputData_h.size());
 
