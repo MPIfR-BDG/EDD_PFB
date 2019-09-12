@@ -49,7 +49,7 @@ POLARIZATIONS = ["polarization_0", "polarization_1"]
 DEFAULT_CONFIG = {
         "input_bit_depth" : 12,                             # Input bit-depth
         "samples_per_heap": 4096,                           # this needs to be consistent with the mkrecv configuration
-        "samples_per_block": 512 * 1024 * 1024,             # 512 Mega sampels per buffer block 
+        "samples_per_block": 64 * 1024 * 1024,             # 512 Mega sampels per buffer block
         "enabled_polarizations" : ["polarization_1"],
         "sample_clock" : 2600000000,
         "sync_time" : 1562662573.0,
@@ -65,7 +65,7 @@ DEFAULT_CONFIG = {
         {
             "ibv_if": "10.10.1.10",
             "mcast_sources": "225.0.0.152+3",
-            "mcast_dest": "225.0.0.182",        
+            "mcast_dest": "225.0.0.182",
             "port_rx": "7148",
             "port_tx": "7152",
             "dada_key": "dada",                             # output keys are the reverse!
@@ -75,7 +75,7 @@ DEFAULT_CONFIG = {
         {
             "ibv_if": "10.10.1.11",
             "mcast_sources": "225.0.0.156+3",
-            "mcast_dest": "225.0.0.183",  
+            "mcast_dest": "225.0.0.183",
             "port_rx": "7148",
             "port_tx": "7152",
             "dada_key": "dadc",
@@ -112,8 +112,6 @@ NINDICES            1      # Although there is more than one index, we are only 
 # The first index item is the running timestamp
 IDX1_ITEM           0      # First item of a SPEAD heap
 
-# Add side item to buffer
-SCI_LIST            2
 """
 
 # static configuration for mksend. all items that can be configured are passed
@@ -141,7 +139,6 @@ HEAP_ID_START   1
 HEAP_ID_OFFSET  1
 HEAP_ID_STEP    13
 
-NSCI            1
 NITEMS          7
 ITEM1_ID        5632    # timestamp, slowest index
 
@@ -152,9 +149,9 @@ ITEM4_ID        5635    # n_taps
 
 ITEM5_ID        5636    # sync_time
 
-ITEM6_ID        5638    # sampling rate
+ITEM6_ID        5637    # sampling rate
 
-ITEM7_ID        5640    # payload item (empty step, list, index and sci)
+ITEM7_ID        5638    # payload item (empty step, list, index and sci)
 """
 
 
@@ -168,7 +165,6 @@ class CriticalPFBPipeline(EDDPipeline):
     def __init__(self, ip, port, scpi_ip, scpi_port):
         """@brief initialize the pipeline."""
         EDDPipeline.__init__(self, ip, port, scpi_ip, scpi_port)
-
 
     def setup_sensors(self):
         """
@@ -220,12 +216,6 @@ class CriticalPFBPipeline(EDDPipeline):
             default=time.ctime(),
             initial_status=Sensor.NOMINAL)
         self.add_sensor(self._status_change_time)
-
-        self._integration_time_status = Sensor.float(
-            "integration-time",
-            description="Integration time [s]",
-            initial_status=Sensor.UNKNOWN)
-        self.add_sensor(self._integration_time_status)
 
         self._output_rate_status = Sensor.float(
             "output-rate",
@@ -344,22 +334,21 @@ class CriticalPFBPipeline(EDDPipeline):
         # calculate input buffer parameters
         self.input_heapSize =  self._config["samples_per_heap"] * self._config['input_bit_depth'] / 8
         nHeaps = self._config["samples_per_block"] / self._config["samples_per_heap"]
-        input_bufferSize = nHeaps * (self.input_heapSize + 64 / 8)
+        input_bufferSize = nHeaps * (self.input_heapSize)
         log.info('Input dada parameters created from configuration:\n\
                 heap size:        {} byte\n\
                 heaps per block:  {}\n\
                 buffer size:      {} byte'.format(self.input_heapSize, nHeaps, input_bufferSize))
 
         # calculate output buffer parameters
-        nSlices = max(self._config["samples_per_block"] / self._config['fft_length'] /  self._config['naccumulate'], 1)
-        nChannels = self._config['fft_length'] / 2 + 1
+        nSlices = max(self._config["samples_per_block"] / self._config['fft_length'], 1)
+        nChannels = self._config['fft_length'] / 2
         # on / off spectrum  + one side channel item per spectrum
-        output_bufferSize = nSlices * (2 * nChannels * self._config['output_bit_depth'] / 8 + 2 * 8)
+        output_bufferSize = nSlices * nChannels 
+        output_heapSize = nChannels * 4 * nSlices
+        #output_bufferSize 
 
-        output_heapSize = nChannels * self._config['output_bit_depth'] / 8
-        integrationTime = self._config['fft_length'] * self._config['naccumulate']  / float(self._config["sample_clock"])
-        self._integration_time_status.set_value(integrationTime)
-        rate = output_heapSize / integrationTime # in spead documentation BYTE per second and not bit!
+        rate = output_heapSize # in spead documentation BYTE per second and not bit!
         rate *= self._config["output_rate_factor"]        # set rate to (100+X)% of expected rate
         self._output_rate_status.set_value(rate / 1E9)
 
@@ -368,9 +357,8 @@ class CriticalPFBPipeline(EDDPipeline):
                 spectra per block:  {} \n\
                 nChannels:          {} \n\
                 buffer size:        {} byte \n\
-                integrationTime :   {} s \n\
                 heap size:          {} byte\n\
-                rate ({:.0f}%):        {} Gbps'.format(nSlices, nChannels, output_bufferSize, integrationTime, output_heapSize, self._config["output_rate_factor"]*100, rate / 1E9))
+                rate ({:.0f}%):        {} Gbps'.format(nSlices, nChannels, output_bufferSize, output_heapSize, self._config["output_rate_factor"] * 100, rate / 1E9))
         self._subprocessMonitor = SubprocessMonitor()
 
         for i, k in enumerate(self._config['enabled_polarizations']):
@@ -382,13 +370,13 @@ class CriticalPFBPipeline(EDDPipeline):
 
             ofname = bufferName[::-1]
             # we write nSlice blocks on each go
-            yield self._create_ring_buffer(output_bufferSize, 8 * nSlices, ofname, numa_node)
+            yield self._create_ring_buffer(output_bufferSize, 16, ofname, numa_node)
 
             # Configure + launch
             # here should be a smarter system to parse the options from the
             # controller to the program without redundant typing of options
             physcpu = numa.getInfo()[numa_node]['cores'][0]
-            cmd = "taskset {physcpu} pfb --input_key={dada_key} --speadheap_size={heapSize} --inputbitdepth={input_bit_depth} --fft_length={fft_length}   -o {ofname} --log_level={log_level} --output_type=dada".format(dada_key=bufferName, ofname=ofname, heapSize=self.input_heapSize, numa_node=numa_node, physcpu=physcpu, **self._config)
+            cmd = "taskset {physcpu} pfb --input_key={dada_key} --inputbitdepth={input_bit_depth} --fft_length={fft_length} --ntaps={ntaps}   -o {ofname} --log_level={log_level} --output_type=dada".format(dada_key=bufferName, ofname=ofname, heapSize=self.input_heapSize, numa_node=numa_node, physcpu=physcpu, **self._config)
             log.debug("Command to run: {}".format(cmd))
 
             cudaDevice = numa.getInfo()[self._config[k]["numa_node"]]["gpus"][0]
@@ -404,13 +392,12 @@ class CriticalPFBPipeline(EDDPipeline):
                 cfg = self._config.copy()
                 cfg.update(self._config[k])
 
-                nhops = len(self._config[k]['mcast_dest'].split())
 
-                timestep = cfg["fft_length"] * cfg["naccumulate"]
+                timestep = input_bufferSize * 8 / cfg['input_bit_depth']
                 physcpu = ",".join(numa.getInfo()[numa_node]['cores'][1:2])
-                cmd = "taskset {physcpu} mksend --header {mksend_header} --dada-key {ofname} --ibv-if {ibv_if} --port {port_tx} --sync-epoch {sync_time} --sample-clock {sample_clock} --item1-step {timestep} --item2-list {polarization} --item3-list {fft_length} --item4-list {ntaps} --item6-list {sample_clock} --item5-list {sync_time} --rate {rate} --heap-size {heap_size} --nhops {nhops} {mcast_dest}".format(mksend_header=mksend_header_file.name, timestep=timestep,
-                        ofname=ofname, polarization=i, nChannels=nChannels, physcpu=physcpu, integrationTime=integrationTime,
-                        rate=rate, nhops=nhops, heap_size=output_heapSize, **cfg)
+                cmd = "taskset {physcpu} mksend --header {mksend_header} --dada-key {ofname} --ibv-if {ibv_if} --port {port_tx} --sync-epoch {sync_time} --sample-clock {sample_clock} --item1-step {timestep} --item2-list {polarization} --item3-list {fft_length} --item4-list {ntaps} --item6-list {sample_clock} --item5-list {sync_time} --rate {rate} --heap-size {heap_size} {mcast_dest}".format(mksend_header=mksend_header_file.name, timestep=timestep,
+                        ofname=ofname, polarization=i, nChannels=nChannels, physcpu=physcpu,
+                        rate=rate, heap_size=output_heapSize, **cfg)
                 log.debug("Command to run: {}".format(cmd))
 
                 mks = ManagedProcess(cmd)
@@ -475,12 +462,10 @@ class CriticalPFBPipeline(EDDPipeline):
             self.__watchdogs = []
             for i, k in enumerate(self._config['enabled_polarizations']):
                 wd = SensorWatchdog(self._polarization_sensors[k]["input-buffer-total-write"],
-                        10 * self._integration_time_status.value(),
+                        20,
                         self.watchdog_error)
                 wd.start()
                 self.__watchdogs.append(wd)
-
-
 
 
     @coroutine
