@@ -25,10 +25,11 @@ int main(int argc, char** argv)
   key_t input_key;
   std::string output_type = "file";
 
-  unsigned int nbits;
+  unsigned int inputbitdepth, outputbitdepth;
   unsigned int fft_length;
   unsigned int ntaps;
   std::string filtercoefficientsfile;
+  float minv, maxv;
 
   char buffer[32];
   std::time_t now = std::time(NULL);
@@ -58,9 +59,18 @@ int main(int argc, char** argv)
                        "The numbr of taps");
   desc.add_options()("fft_length,n", po::value<unsigned int>(&fft_length)->required(),
                        "The length of the FFT to perform on the data");
-  desc.add_options()("inputbitdepth,b", po::value<unsigned int>(&nbits)->required(),
+  desc.add_options()("inputbitdepth,b", po::value<unsigned int>(&inputbitdepth)->required(),
                        "The number of bits per sample in the "
                        "packetiser output (8 or 12)");
+
+  desc.add_options()("outputbitdepth", po::value<unsigned int>(&outputbitdepth)->required(),
+                       "The number of bits per sample in the "
+                       "PFB output (2, 4, 8, 16 or 32)");
+
+  desc.add_options()("minv,x", po::value<float>(&minv),
+                       "Minimum value for output conversion");
+  desc.add_options()("maxv,y", po::value<float>(&maxv),
+                       "Maximum vlaue for output converison");
   desc.add_options()(
         "filtercoefficients,f", po::value<std::string>(&filtercoefficientsfile)->default_value(filtercoefficientsfile),
         "txt file with filter coefficents. If empty, Kaiser coefficients will be calculated as default."
@@ -86,6 +96,15 @@ int main(int argc, char** argv)
     if (vm.count("output_type") && (!(output_type == "dada" || output_type == "file") ))
     {
       throw po::validation_error(po::validation_error::invalid_option_value, "output_type", output_type);
+    }
+    if (!vm.count("minv"))
+    {
+      minv = -1. * pow(2, outputbitdepth-1);
+    }
+
+    if (!vm.count("maxv"))
+    {
+      maxv = pow(2, outputbitdepth-1) - 1;
     }
 
   }
@@ -150,32 +169,32 @@ int main(int argc, char** argv)
   psrdada_cpp::MultiLog log("PFB");
   psrdada_cpp::DadaClientBase client(input_key, log);
   size_t bufferSize = client.data_buffer_size(); // buffer size in bit
-  if ((bufferSize * 8) % nbits != 0)
+  if ((bufferSize * 8) % inputbitdepth!= 0)
   {
-      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a natural number of " << nbits << " bit encoded values!.";
+      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a natural number of " << inputbitdepth << " bit encoded values!.";
       throw std::runtime_error("EDD PFB: Bad size of input buffer.");
   }
 
-  if ((bufferSize * 8 / nbits) % fft_length != 0)
+  if ((bufferSize * 8 / inputbitdepth) % fft_length != 0)
   {
-      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a multiple of " << fft_length << " values of "<< nbits << " bit!.";
+      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a multiple of " << fft_length << " values of "<< inputbitdepth << " bit!.";
       throw std::runtime_error("EDD PFB: Bad size of input buffer.");
   }
 
-  size_t nSpectra = bufferSize * 8 / nbits / fft_length;
+  size_t nSpectra = bufferSize * 8 / inputbitdepth / fft_length;
 
   BOOST_LOG_TRIVIAL(debug) << "Input buffer size " << bufferSize << " bytes. Generating " << nSpectra << " spectra of fft_length " << fft_length << " values.";
   if (output_type == "file")
   {
     psrdada_cpp::SimpleFileWriter sink(outputfilename);
-    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, nbits, filterCoefficients, sink);
+    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, minv, maxv, filterCoefficients, sink);
     psrdada_cpp::DadaInputStream<decltype(ppf)> istream(input_key, log, ppf);
     istream.start();
   }
   else if (output_type == "dada")
   {
     psrdada_cpp::DadaOutputStream sink(psrdada_cpp::string_to_key(outputfilename), log);
-    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, nbits, filterCoefficients, sink);
+    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, minv, maxv, filterCoefficients, sink);
     psrdada_cpp::DadaInputStream<decltype(ppf)> istream(input_key, log, ppf);
     istream.start();
   }

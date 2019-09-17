@@ -30,7 +30,9 @@ private:
   std::size_t fftSize;
   std::size_t nSpectra;
   std::size_t _call_count;
-  std::size_t _nBits;
+  std::size_t inputBitDepth;
+  std::size_t outputBitDepth;
+  float minV, maxV;
 
   HandlerType &_handler;
 
@@ -43,11 +45,12 @@ private:
 
   // io double buffer
   psrdada_cpp::DoubleDeviceBuffer<uint64_t> inputData;
-  psrdada_cpp::DoubleDeviceBuffer<cufftComplex> outputData_d;
-  psrdada_cpp::DoubleHostBuffer<cufftComplex> outputData_h;
+  psrdada_cpp::DoubleDeviceBuffer<uint32_t> outputData_d;
+  psrdada_cpp::DoubleHostBuffer<uint32_t> outputData_h;
 
   // scratch data
 	thrust::device_vector<float> firOutput;
+	thrust::device_vector<cufftComplex> ppfData;
 	thrust::device_vector<float> unpackedData;
 public:
   /**
@@ -61,7 +64,7 @@ public:
   * @detail The number of filter coefficients should be equal to ntaps x nchans.
   */
   explicit CriticalPolyphaseFilterbank(
-      std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra, std::size_t nBits,
+      std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra, std::size_t inputBitDepth, std::size_t outputBitDepth,  float minV, float maxV,
       FilterCoefficientsType const &filterCoefficients,
       HandlerType &handler);
 
