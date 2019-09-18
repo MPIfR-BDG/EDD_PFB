@@ -144,7 +144,9 @@ void FIRFilter(const float *input,
   const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
   if (nCUDAblocks_y > 65535)
   {
-    BOOST_LOG_TRIVIAL(error) << "Requested " << nCUDAblocks_y << " nCUDAblocks_y - maximum is 65536! Try reducing the size of the input buffer (or increasing the number of channels).";
+    BOOST_LOG_TRIVIAL(error) << "Requested " << nCUDAblocks_y
+      << " nCUDAblocks_y - maximum is 65536! Try reducing the size"
+         " of the input buffer (or increasing the number of channels).";
   }
   const size_t nCUDAblocks_x = (size_t)(fftSize / THXPERWARP);
 
@@ -201,7 +203,7 @@ __device__ __forceinline__ uint32_t convert32<16>(float inp, float maxV, float m
 // pack float to 2,4,8,16 bit integers with linear scaling. Striop the DC
 // component
 template <unsigned int input_bit_depth>
-__global__ void packNbit(const float *__restrict__ input,
+__global__ void packNbitAndStripDC(const float *__restrict__ input,
                          uint32_t *__restrict__ output, size_t fftSize, size_t nspectra,
                          float minV, float maxV) {
   // number of values to pack into one output element, use 32 bit here to
@@ -212,7 +214,7 @@ __global__ void packNbit(const float *__restrict__ input,
   __shared__ uint32_t tmp[1024];
 
   for (uint32_t i = NPACK * blockIdx.x * blockDim.x + threadIdx.x;
-       (i < fftSize * nspectra); i += blockDim.x * gridDim.x * NPACK) 
+       (i < fftSize * nspectra); i += blockDim.x * gridDim.x * NPACK)
         // factor 2 as two float for complex
   {
     tmp[threadIdx.x] = 0;
@@ -257,7 +259,7 @@ __global__ void packNbit(const float *__restrict__ input,
 __global__ void stripDCChannel(const float *__restrict__ input,
                          float *__restrict__ output, size_t fftSize, size_t nspectra) {
   for (uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
-       (i < fftSize * nspectra); i += blockDim.x * gridDim.x) 
+       (i < fftSize * nspectra); i += blockDim.x * gridDim.x)
         // factor 2 as two float for complex
   {
       size_t offset = (1 + i / fftSize) * 2; // factor 2 as two float for complex
@@ -350,28 +352,28 @@ void CriticalPolyphaseFilterbank<HandlerType>::init(psrdada_cpp::RawBytes &block
 {
   std::stringstream headerInfo;
   headerInfo << "\n"
-      << "# PFB parameters: \n"
+      << "# CriticalPFB parameters: \n"
       << "fftSize                  " << fftSize << "\n"
-      << "nTaps                    " << nTaps << "\n";
+      << "nTaps                    " << nTaps << "\n"
+      << "outputBitDepth           " << outputBitDepth << "\n"
+      << "minV                     " << minV << "\n"
+      << "maxV                     " << maxV << "\n";
   BOOST_LOG_TRIVIAL(debug) << "CriticalPolyphaseFilterbank init header info:\n" << headerInfo.str() ;
 
   size_t bEnd = std::strlen(block.ptr());
   if (bEnd + headerInfo.str().size() < block.total_bytes())
   {
-    std::strcpy(block.ptr() + bEnd, headerInfo.str().c_str());  
+    std::strcpy(block.ptr() + bEnd, headerInfo.str().c_str());
   }
   else
   {
     BOOST_LOG_TRIVIAL(warning) << "Header of size " << block.total_bytes()
       << " bytes already contains " << bEnd
-      << "bytes. Cannot add gated spectrometer info of size "
+      << "bytes. Cannot add PFB info of size "
       << headerInfo.str().size() << " bytes.";
   }
-
   _handler.init(block);
-
-
-  }
+}
 
 
 template <class HandlerType>
@@ -388,7 +390,7 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   outputData_d.swap();
   outputData_h.swap();
 
-  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to device (" 
+  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to device ("
     << inputData.size() * sizeof(inputData.a()[0]) << " bytes)";
 
   CUDA_ERROR_CHECK(cudaMemcpyAsync(static_cast<void *>(inputData.a_ptr()),
@@ -424,16 +426,16 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   switch (outputBitDepth)
   {
     case 8:
-      packNbit<8><<<128, 1024, 0,_proc_stream>>>((float*) thrust::raw_pointer_cast(ppfData.data()),
+      packNbitAndStripDC<8><<<128, 1024, 0,_proc_stream>>>((float*) thrust::raw_pointer_cast(ppfData.data()),
               thrust::raw_pointer_cast(outputData_d.a().data()), fftSize, nSpectra, minV, maxV);
       break;
     case 16:
-      packNbit<16><<<128, 1024, 0,_proc_stream>>>((float*) thrust::raw_pointer_cast(ppfData.data()),
+      packNbitAndStripDC<16><<<128, 1024, 0,_proc_stream>>>((float*) thrust::raw_pointer_cast(ppfData.data()),
               thrust::raw_pointer_cast(outputData_d.a().data()), fftSize, nSpectra, minV, maxV);
       break;
     case 32:
       // for 32 bit it would be more efficient to do this during copy as
-      // initially implemented, see git revs. 
+      // initially implemented, see git revs.
       stripDCChannel<<<128, 1024, 0,_proc_stream>>>((float*) thrust::raw_pointer_cast(ppfData.data()),
               (float*) thrust::raw_pointer_cast(outputData_d.a().data()), fftSize, nSpectra);
       break;
