@@ -49,12 +49,13 @@ POLARIZATIONS = ["polarization_0", "polarization_1"]
 DEFAULT_CONFIG = {
         "input_bit_depth" : 12,                             # Input bit-depth
         "samples_per_heap": 4096,                           # this needs to be consistent with the mkrecv configuration
-        "samples_per_block": 64 * 1024 * 1024,             # 512 Mega sampels per buffer block
+        "samples_per_block": 64 * 1024 * 1024,              # sampels per buffer block
         "enabled_polarizations" : ["polarization_1"],
         "sample_clock" : 2600000000,
         "sync_time" : 1562662573.0,
         "fft_length": 128,
         "ntaps": 4,
+        "output_bit_depth" : 8,                             # Output bit-depth (2,4,8,16,32)
         "null_output": False,                               # Disable sending of data for testing purposes
         "dummy_input": False,                               # Use dummy input instead of mkrecv process.
         "log_level": "debug",
@@ -344,11 +345,11 @@ class CriticalPFBPipeline(EDDPipeline):
         nSlices = max(self._config["samples_per_block"] / self._config['fft_length'], 1)
         nChannels = self._config['fft_length'] / 2
         # on / off spectrum  + one side channel item per spectrum
-        output_bufferSize = nSlices * nChannels 
-        output_heapSize = nChannels * 4 * nSlices
-        #output_bufferSize 
+        output_bufferSize = nSlices * 2 * nChannels * self._config['output_bit_depth'] / 8
+        output_heapSize = output_bufferSize / 8
+        #output_bufferSize
 
-        rate = output_heapSize # in spead documentation BYTE per second and not bit!
+        rate = output_bufferSize * float(self._config['sample_clock']) / self._config["samples_per_block"] # in spead documentation BYTE per second and not bit!
         rate *= self._config["output_rate_factor"]        # set rate to (100+X)% of expected rate
         self._output_rate_status.set_value(rate / 1E9)
 
@@ -370,13 +371,13 @@ class CriticalPFBPipeline(EDDPipeline):
 
             ofname = bufferName[::-1]
             # we write nSlice blocks on each go
-            yield self._create_ring_buffer(output_bufferSize, 16, ofname, numa_node)
+            yield self._create_ring_buffer(output_bufferSize, 64, ofname, numa_node)
 
             # Configure + launch
             # here should be a smarter system to parse the options from the
             # controller to the program without redundant typing of options
             physcpu = numa.getInfo()[numa_node]['cores'][0]
-            cmd = "taskset {physcpu} pfb --input_key={dada_key} --inputbitdepth={input_bit_depth} --fft_length={fft_length} --ntaps={ntaps}   -o {ofname} --log_level={log_level} --output_type=dada".format(dada_key=bufferName, ofname=ofname, heapSize=self.input_heapSize, numa_node=numa_node, physcpu=physcpu, **self._config)
+            cmd = "taskset {physcpu} pfb --input_key={dada_key} --inputbitdepth={input_bit_depth} --fft_length={fft_length} --ntaps={ntaps}   -o {ofname} --log_level={log_level} --outputbitdepth={output_bit_depth} --output_type=dada".format(dada_key=bufferName, ofname=ofname, heapSize=self.input_heapSize, numa_node=numa_node, physcpu=physcpu, **self._config)
             log.debug("Command to run: {}".format(cmd))
 
             cudaDevice = numa.getInfo()[self._config[k]["numa_node"]]["gpus"][0]
