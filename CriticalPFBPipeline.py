@@ -134,12 +134,6 @@ SAMPLE_CLOCK        unset  # Default value from mksend manual
 SAMPLE_CLOCK_START  0      # file Default value from mksend manual
 UTC_START           unset  # Default value from mksend manual
 
-#number of heaps with the same time stamp.
-HEAP_COUNT 1
-HEAP_ID_START   1
-HEAP_ID_OFFSET  1
-HEAP_ID_STEP    13
-
 NITEMS          7
 ITEM1_ID        5632    # timestamp, slowest index
 
@@ -346,7 +340,7 @@ class CriticalPFBPipeline(EDDPipeline):
         nChannels = self._config['fft_length'] / 2
         # on / off spectrum  + one side channel item per spectrum
         output_bufferSize = nSlices * 2 * nChannels * self._config['output_bit_depth'] / 8
-        output_heapSize = output_bufferSize / 8
+        output_heapSize = output_bufferSize
         #output_bufferSize
 
         rate = output_bufferSize * float(self._config['sample_clock']) / self._config["samples_per_block"] # in spead documentation BYTE per second and not bit!
@@ -406,6 +400,7 @@ class CriticalPFBPipeline(EDDPipeline):
                 self._subprocesses.append(mks)
             else:
                 log.warning("Selected null output. Not sending data!")
+                command_watcher("dada_dbscrubber -k {}".format(ofname))
 
         self._subprocessMonitor.start()
         self.state = "ready"

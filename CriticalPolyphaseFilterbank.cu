@@ -313,11 +313,11 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
     BOOST_LOG_TRIVIAL(error) << "Output size dose not fully utilze array of 32 bit. Adapt fftSize to multiple of 32!";
     throw std::runtime_error("Bad size of buffer");
   }
-  outputData_d.resize(nSpectra * (fftSize / 2) * outputBitDepth / 32);
+  outputData_d.resize(nSpectra * (fftSize) * outputBitDepth / 32);
   outputData_h.resize(outputData_d.size());
   // we drop the DC channel during device to host copy
   ppfData.resize(nSpectra * (fftSize / 2 + 1));
-  BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size() << " (complex values)";
+  BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size() * 4<< " (byte)";
 
   _unpacker.reset(new psrdada_cpp::Unpacker( _proc_stream ));
 }
@@ -470,8 +470,8 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
 
   BOOST_LOG_TRIVIAL(debug) << "  - Calling handler";
   psrdada_cpp::RawBytes bytes(reinterpret_cast<char *>(outputData_h.b_ptr()),
-                 outputData_h.size(),
-                 outputData_h.size());
+                 outputData_h.size() * sizeof(outputData_h.a_ptr()[0]),
+                 outputData_h.size() * sizeof(outputData_h.a_ptr()[0]));
 
   // The handler can't do anything asynchronously without a copy here
   // as it would be unsafe (given that it does not own the memory it
