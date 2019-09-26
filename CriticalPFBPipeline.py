@@ -165,18 +165,7 @@ class CriticalPFBPipeline(EDDPipeline):
         """
         @brief Setup monitoring sensors
         """
-        self._testSensor = Sensor.string(
-            "test",
-            description="test",
-            initial_status=Sensor.NOMINAL)
-        self.add_sensor(self._testSensor)
-
-        self._control_mode_sensor = Sensor.string(
-            "control-mode",
-            description="The control mode for the EDD",
-            default=self._control_mode,
-            initial_status=Sensor.NOMINAL)
-        self.add_sensor(self._control_mode_sensor)
+        EDDPipeline.setup_sensors(self)
 
         self._edd_config_sensor = Sensor.string(
             "current-config",
@@ -184,33 +173,6 @@ class CriticalPFBPipeline(EDDPipeline):
             default=json.dumps(DEFAULT_CONFIG, indent=4),
             initial_status=Sensor.UNKNOWN)
         self.add_sensor(self._edd_config_sensor)
-        self._edd_scpi_interface_addr_sensor = Sensor.string(
-            "scpi-interface-addr",
-            description="The SCPI interface address for this instance",
-            default="{}:{}".format(self._scpi_ip, self._scpi_port),
-            initial_status=Sensor.UNKNOWN)
-        self.add_sensor(self._edd_scpi_interface_addr_sensor)
-        self._device_status = Sensor.discrete(
-            "device-status",
-            description="Health status of device",
-            params=self.DEVICE_STATUSES,
-            default="ok",
-            initial_status=Sensor.UNKNOWN)
-        self.add_sensor(self._device_status)
-        self._pipeline_sensor_status = Sensor.discrete(
-            "pipeline-status",
-            description="Status of the pipeline",
-            params=self.PIPELINE_STATES,
-            default="idle",
-            initial_status=Sensor.UNKNOWN)
-        self.add_sensor(self._pipeline_sensor_status)
-
-        self._status_change_time = Sensor.string(
-            "status-change-time",
-            description="Time of last status change",
-            default=time.ctime(),
-            initial_status=Sensor.NOMINAL)
-        self.add_sensor(self._status_change_time)
 
         self._output_rate_status = Sensor.float(
             "output-rate",
