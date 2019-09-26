@@ -49,7 +49,7 @@ POLARIZATIONS = ["polarization_0", "polarization_1"]
 DEFAULT_CONFIG = {
         "input_bit_depth" : 12,                             # Input bit-depth
         "samples_per_heap": 4096,                           # this needs to be consistent with the mkrecv configuration
-        "samples_per_block": 64 * 1024 * 1024,              # sampels per buffer block
+        "samples_per_block": 2*64 * 1024 * 1024,              # sampels per buffer block
         "enabled_polarizations" : ["polarization_1"],
         "sample_clock" : 2600000000,
         "sync_time" : 1562662573.0,
@@ -122,6 +122,7 @@ HEADER          DADA
 HDR_VERSION     1.0
 HDR_SIZE        4096
 DADA_VERSION    1.0
+BUFFER_SIZE         128000000
 
 # MKSEND CONFIG
 NETWORK_MODE  1
@@ -130,9 +131,12 @@ IBV_VECTOR   -1          # IBV forced into polling mode
 IBV_MAX_POLL 10
 
 SYNC_TIME           unset  # Default value from mksend manual
-SAMPLE_CLOCK        unset  # Default value from mksend manual
-SAMPLE_CLOCK_START  0      # file Default value from mksend manual
 UTC_START           unset  # Default value from mksend manual
+
+HEAP_COUNT 1
+HEAP_ID_START   1
+HEAP_ID_OFFSET  1
+HEAP_ID_STEP    13
 
 NITEMS          7
 ITEM1_ID        5632    # timestamp, slowest index
@@ -159,6 +163,7 @@ class CriticalPFBPipeline(EDDPipeline):
 
     def __init__(self, ip, port, scpi_ip, scpi_port):
         """@brief initialize the pipeline."""
+        self._dada_buffers = []
         EDDPipeline.__init__(self, ip, port, scpi_ip, scpi_port)
 
     def setup_sensors(self):
@@ -302,7 +307,7 @@ class CriticalPFBPipeline(EDDPipeline):
         nChannels = self._config['fft_length'] / 2
         # on / off spectrum  + one side channel item per spectrum
         output_bufferSize = nSlices * 2 * nChannels * self._config['output_bit_depth'] / 8
-        output_heapSize = output_bufferSize
+        output_heapSize = output_bufferSize 
         #output_bufferSize
 
         rate = output_bufferSize * float(self._config['sample_clock']) / self._config["samples_per_block"] # in spead documentation BYTE per second and not bit!
@@ -351,8 +356,8 @@ class CriticalPFBPipeline(EDDPipeline):
 
 
                 timestep = input_bufferSize * 8 / cfg['input_bit_depth']
-                physcpu = ",".join(numa.getInfo()[numa_node]['cores'][1:2])
-                cmd = "taskset {physcpu} mksend --header {mksend_header} --dada-key {ofname} --ibv-if {ibv_if} --port {port_tx} --sync-epoch {sync_time} --sample-clock {sample_clock} --item1-step {timestep} --item2-list {polarization} --item3-list {fft_length} --item4-list {ntaps} --item6-list {sample_clock} --item5-list {sync_time} --rate {rate} --heap-size {heap_size} {mcast_dest}".format(mksend_header=mksend_header_file.name, timestep=timestep,
+                physcpu = ",".join(numa.getInfo()[numa_node]['cores'][1:4])
+                cmd = "taskset {physcpu} mksend --header {mksend_header} --nthreads 3 --dada-key {ofname} --ibv-if {ibv_if} --port {port_tx} --sync-epoch {sync_time} --sample-clock {sample_clock} --item1-step {timestep} --item2-list {polarization} --item3-list {fft_length} --item4-list {ntaps} --item6-list {sample_clock} --item5-list {sync_time} --rate {rate} --heap-size {heap_size} {mcast_dest}".format(mksend_header=mksend_header_file.name, timestep=timestep,
                         ofname=ofname, polarization=i, nChannels=nChannels, physcpu=physcpu,
                         rate=rate, heap_size=output_heapSize, **cfg)
                 log.debug("Command to run: {}".format(cmd))
@@ -396,7 +401,7 @@ class CriticalPFBPipeline(EDDPipeline):
                 cfg.update(self._config[k])
                 if not self._config['dummy_input']:
                     numa_node = self._config[k]['numa_node']
-                    physcpu = ",".join(numa.getInfo()[numa_node]['cores'][2:7])
+                    physcpu = ",".join(numa.getInfo()[numa_node]['cores'][4:9])
                     cmd = "taskset {physcpu} mkrecv_nt --quiet --header {mkrecv_header} --idx1-step {samples_per_heap} --dada-key {dada_key} \
                     --sync-epoch {sync_time} --sample-clock {sample_clock} \
                     --ibv-if {ibv_if} --port {port_rx} {mcast_sources}".format(mkrecv_header=mkrecvheader_file.name, physcpu=physcpu,
