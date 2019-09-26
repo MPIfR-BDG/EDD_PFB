@@ -425,6 +425,14 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   //pack FFt output to outputbitdepth and drop DC channel
   switch (outputBitDepth)
   {
+    case 2:
+      packNbitAndStripDC<2><<<128, 1024, 0,_proc_stream>>>((float*) thrust::raw_pointer_cast(ppfData.data()),
+              thrust::raw_pointer_cast(outputData_d.a().data()), fftSize, nSpectra, minV, maxV);
+      break;
+    case 4:
+      packNbitAndStripDC<4><<<128, 1024, 0,_proc_stream>>>((float*) thrust::raw_pointer_cast(ppfData.data()),
+              thrust::raw_pointer_cast(outputData_d.a().data()), fftSize, nSpectra, minV, maxV);
+      break;
     case 8:
       packNbitAndStripDC<8><<<128, 1024, 0,_proc_stream>>>((float*) thrust::raw_pointer_cast(ppfData.data()),
               thrust::raw_pointer_cast(outputData_d.a().data()), fftSize, nSpectra, minV, maxV);
