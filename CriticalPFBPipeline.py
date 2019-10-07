@@ -56,7 +56,7 @@ DEFAULT_CONFIG = {
         "fft_length": 128,
         "ntaps": 4,
         "output_bit_depth" : 8,                             # Output bit-depth (2,4,8,16,32)
-        "null_output": False,                               # Disable sending of data for testing purposes
+        "output_type": 'dada',                              # ['network', 'disk', 'null'] 
         "dummy_input": False,                               # Use dummy input instead of mkrecv process.
         "log_level": "debug",
 
@@ -338,7 +338,7 @@ class CriticalPFBPipeline(EDDPipeline):
             # here should be a smarter system to parse the options from the
             # controller to the program without redundant typing of options
             physcpu = numa.getInfo()[numa_node]['cores'][0]
-            cmd = "taskset {physcpu} pfb --input_key={dada_key} --inputbitdepth={input_bit_depth} --fft_length={fft_length} --ntaps={ntaps}   -o {ofname} --log_level={log_level} --outputbitdepth={output_bit_depth} --output_type=file".format(dada_key=bufferName, ofname=ofname, heapSize=self.input_heapSize, numa_node=numa_node, physcpu=physcpu, **self._config)
+            cmd = "taskset {physcpu} pfb --input_key={dada_key} --inputbitdepth={input_bit_depth} --fft_length={fft_length} --ntaps={ntaps}   -o {ofname} --log_level={log_level} --outputbitdepth={output_bit_depth} --output_type=dada".format(dada_key=bufferName, ofname=ofname, heapSize=self.input_heapSize, numa_node=numa_node, physcpu=physcpu, **self._config)
             log.debug("Command to run: {}".format(cmd))
 
             cudaDevice = numa.getInfo()[self._config[k]["numa_node"]]["gpus"][0]
@@ -346,31 +346,35 @@ class CriticalPFBPipeline(EDDPipeline):
             self._subprocessMonitor.add(cli, self._subprocess_error)
             self._subprocesses.append(cli)
 
-            if not self._config["null_output"]:
+            cfg = self._config.copy()
+            cfg.update(self._config[k])
+
+            if self._config["output_type"] == 'dada':
                 mksend_header_file = tempfile.NamedTemporaryFile(delete=False)
                 mksend_header_file.write(mksend_header)
                 mksend_header_file.close()
-
-                cfg = self._config.copy()
-                cfg.update(self._config[k])
-
 
                 timestep = input_bufferSize * 8 / cfg['input_bit_depth']
                 physcpu = ",".join(numa.getInfo()[numa_node]['cores'][1:4])
                 cmd = "taskset {physcpu} mksend --header {mksend_header} --nthreads 3 --dada-key {ofname} --ibv-if {ibv_if} --port {port_tx} --sync-epoch {sync_time} --sample-clock {sample_clock} --item1-step {timestep} --item2-list {polarization} --item3-list {fft_length} --item4-list {ntaps} --item6-list {sample_clock} --item5-list {sync_time} --rate {rate} --heap-size {heap_size} {mcast_dest}".format(mksend_header=mksend_header_file.name, timestep=timestep,
                         ofname=ofname, polarization=i, nChannels=nChannels, physcpu=physcpu,
                         rate=rate, heap_size=output_heapSize, **cfg)
-                log.debug("Command to run: {}".format(cmd))
 
-                mks = ManagedProcess(cmd)
-                self._subprocessMonitor.add(mks, self._subprocess_error)
-                self._subprocesses.append(mks)
+            elif self._config["output_type"] == 'disk':
+                cmd = "dada_dbnull -z -k {}".format(ofname)
+                if not os.path.isdir("./{ofname}".format(ofname=ofname)):
+                    os.mkdir("./{ofname}".format(ofname=ofname))
+                cmd = "dada_dbdisk -k {ofname} -D ./{ofname} -W".format(ofname=ofname, **cfg)
+
             else:
                 log.warning("Selected null output. Not sending data!")
-                cmd = "dada_dbnull -z -k {}".format(ofname)
-                mks = ManagedProcess(cmd)
-                self._subprocessMonitor.add(mks, self._subprocess_error)
-                self._subprocesses.append(mks)
+                cmd = "dada_dbnull -z -k {}".format()
+
+            log.debug("Command to run: {}".format(cmd))
+            mks = ManagedProcess(cmd)
+            self._subprocessMonitor.add(mks, self._subprocess_error)
+            self._subprocesses.append(mks)
+
 
         self._subprocessMonitor.start()
         self.state = "ready"
@@ -412,8 +416,7 @@ class CriticalPFBPipeline(EDDPipeline):
                     mk = ManagedProcess(cmd, stdout_handler=self._polarization_sensors[k]["mkrecv_sensors"].stdout_handler)
                 else:
                     log.warning("Creating Dummy input instead of listening to network!")
-                    cmd = "dada_junkdb -c 1 -R 1000 -t 3600 -k {dada_key} {mkrecv_header}".format(mkrecv_header=mkrecvheader_file.name,
-                            **cfg )
+                    cmd = "dummy_data_generator -o {dada_key} -b {input_bit_depth} -d 1000 -s 0".format(**cfg )
 
                     mk = ManagedProcess(cmd)
 
