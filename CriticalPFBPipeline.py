@@ -49,7 +49,7 @@ POLARIZATIONS = ["polarization_0", "polarization_1"]
 DEFAULT_CONFIG = {
         "input_bit_depth" : 12,                             # Input bit-depth
         "samples_per_heap": 4096,                           # this needs to be consistent with the mkrecv configuration
-        "samples_per_block": 2*64 * 1024 * 1024,              # sampels per buffer block
+        "samples_per_block": 64 * 1024 * 1024,              # sampels per buffer block
         "enabled_polarizations" : ["polarization_1"],
         "sample_clock" : 2600000000,
         "sync_time" : 1562662573.0,
@@ -338,7 +338,7 @@ class CriticalPFBPipeline(EDDPipeline):
             # here should be a smarter system to parse the options from the
             # controller to the program without redundant typing of options
             physcpu = numa.getInfo()[numa_node]['cores'][0]
-            cmd = "taskset {physcpu} pfb --input_key={dada_key} --inputbitdepth={input_bit_depth} --fft_length={fft_length} --ntaps={ntaps}   -o {ofname} --log_level={log_level} --outputbitdepth={output_bit_depth} --output_type=dada".format(dada_key=bufferName, ofname=ofname, heapSize=self.input_heapSize, numa_node=numa_node, physcpu=physcpu, **self._config)
+            cmd = "taskset {physcpu} pfb --input_key={dada_key} --inputbitdepth={input_bit_depth} --fft_length={fft_length} --ntaps={ntaps}   -o {ofname} --log_level={log_level} --outputbitdepth={output_bit_depth} --output_type=file".format(dada_key=bufferName, ofname=ofname, heapSize=self.input_heapSize, numa_node=numa_node, physcpu=physcpu, **self._config)
             log.debug("Command to run: {}".format(cmd))
 
             cudaDevice = numa.getInfo()[self._config[k]["numa_node"]]["gpus"][0]
@@ -367,7 +367,10 @@ class CriticalPFBPipeline(EDDPipeline):
                 self._subprocesses.append(mks)
             else:
                 log.warning("Selected null output. Not sending data!")
-                command_watcher("dada_dbscrubber -k {}".format(ofname))
+                cmd = "dada_dbnull -z -k {}".format(ofname)
+                mks = ManagedProcess(cmd)
+                self._subprocessMonitor.add(mks, self._subprocess_error)
+                self._subprocesses.append(mks)
 
         self._subprocessMonitor.start()
         self.state = "ready"

@@ -9,7 +9,7 @@ list(APPEND CUDA_NVCC_FLAGS -DENABLE_CUDA --std c++11 -Wno-deprecated-gpu-target
 #add_subdirectory(thirdparty/psrdada_cpp)
 # ToDo: PSRDADA_CPP should declare directories
 #option(${PSRDADA_INCLUDE_DIR} "Location of psrdada include directory" "")
-option(${PSRDADA_CPP_LIBRARY_DIR} "Location of psrdada include directory" "")
+option(${PSRDADA_CPP_DIR} "Location of psrdada directory" "")
 
 
 ########################################################################
@@ -29,9 +29,9 @@ set(PSRDADA_LIBRARIES ${PSRDADA_LIBRARY})
 find_path(
   PSRDADA_CPP_INCLUDE_DIR 
     NAMES "psrdada_cpp/dada_client_base.hpp"
-    PATHS "${CMAKE_FRAMEWORK_PATH}/include" ${PSRDADA_CPP_INCLUDE_DIR}
+    PATHS "${CMAKE_FRAMEWORK_PATH}/include" ${PSRDADA_CPP_DIR} ${PSRDADA_CPP_DIR}/include
 )
-find_library(PSRDADA_CPP_LIBRARY NAMES psrdada_cpp HINTS ${PSRDADA_CPP_LIBRARY_DIR})
+find_library(PSRDADA_CPP_LIBRARY NAMES psrdada_cpp HINTS ${PSRDADA_CPP_DIR} ${PSRDADA_CPP_DIR}/lib)
 find_package_handle_standard_args(PSRDADA DEFAULT_MSG PSRDADA_LIBRARY PSRDADA_INCLUDE_DIR)
 set(PSRDADA_CPP_INCLUDE_DIRS ${PSRDADA_CPP_INCLUDE_DIR})
 set(PSRDADA_CPP_LIBRARIES ${PSRDADA_CPP_LIBRARY})
