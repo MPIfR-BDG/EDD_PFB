@@ -63,7 +63,7 @@ int main(int argc, char** argv)
                        "The number of bits per sample in the "
                        "packetiser output (8 or 12)");
 
-  desc.add_options()("outputbitdepth", po::value<unsigned int>(&outputbitdepth)->required(),
+  desc.add_options()("outputbitdepth", po::value<unsigned int>(&outputbitdepth)->default_value(32),
                        "The number of bits per sample in the "
                        "PFB output (2, 4, 8, 16 or 32)");
 
@@ -157,13 +157,27 @@ int main(int argc, char** argv)
         throw std::runtime_error( "EDD PFB: Too many filter coefficients in file: " + filtercoefficientsfile);
       }
     }
-    if (i < filterCoefficients.size())
+    if (i == filterCoefficients.size() / 2)
+		{
+      BOOST_LOG_TRIVIAL(info) << "EDD PFB: Received only exactly half the number of coefficients. Assuming symemtric filter.";
+			for(int j = i; j < filterCoefficients.size(); j++)
+			{
+				filterCoefficients[j] = filterCoefficients[filterCoefficients.size() -1 - j];
+			}
+		}
+    else if (i < filterCoefficients.size())
     {
       BOOST_LOG_TRIVIAL(error) << "EDD PFB: Not enough filter coefficients in file :" + filtercoefficientsfile << std::endl
         << "    -  Require " << filterCoefficients.size() << " values, got only " << i << " values!";
         throw std::runtime_error("EDD PFB: Not enough filter coefficients in file: " + filtercoefficientsfile);
     }
   }
+
+	for (int i = 0; i < filterCoefficients.size(); i++)
+	{
+		std::cout << i << ": " << filterCoefficients[i] << std::endl;
+	}
+	exit(0);
 
   BOOST_LOG_TRIVIAL(info) << "Running with  output_type: " << output_type;
   psrdada_cpp::MultiLog log("PFB");
