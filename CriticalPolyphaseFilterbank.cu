@@ -319,7 +319,7 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
   ppfData.resize(nSpectra * (fftSize / 2 + 1));
   BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size() * 4<< " (byte)";
 
-  _unpacker.reset(new psrdada_cpp::Unpacker( _proc_stream ));
+  _unpacker.reset(new psrdada_cpp::effelsberg::edd::Unpacker( _proc_stream ));
 }
 
 

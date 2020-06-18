@@ -9,7 +9,7 @@
 #include "psrdada_cpp/double_device_buffer.cuh"
 #include "psrdada_cpp/double_host_buffer.cuh"
 #include "psrdada_cpp/cuda_utils.hpp"
-#include "psrdada_cpp/Unpacker.cuh"
+#include "psrdada_cpp/effelsberg/edd/Unpacker.cuh"
 
 /* FIR Filter. */
 void FIRFilter(
@@ -41,7 +41,7 @@ private:
   cudaStream_t _proc_stream;
   cudaStream_t _d2h_stream;
 
-  std::unique_ptr<psrdada_cpp::Unpacker> _unpacker;
+  std::unique_ptr<psrdada_cpp::effelsberg::edd::Unpacker> _unpacker;
 
   // io double buffer
   psrdada_cpp::DoubleDeviceBuffer<uint64_t> inputData;
