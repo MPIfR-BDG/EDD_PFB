@@ -46,7 +46,7 @@ private:
   // io double buffer
   psrdada_cpp::DoubleDeviceBuffer<uint64_t> inputData;
   psrdada_cpp::DoubleDeviceBuffer<uint32_t> outputData_d;
-  psrdada_cpp::DoubleHostBuffer<uint32_t> outputData_h;
+  psrdada_cpp::DoublePinnedHostBuffer<uint32_t> outputData_h;
 
   // scratch data
 	thrust::device_vector<float> firOutput;

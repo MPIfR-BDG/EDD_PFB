@@ -320,11 +320,14 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
   }
   outputData_d.resize(nSpectra * (fftSize) * outputBitDepth / 32);
   outputData_h.resize(outputData_d.size());
+
+
   // we drop the DC channel during device to host copy
   ppfData.resize(nSpectra * (fftSize / 2 + 1));
   BOOST_LOG_TRIVIAL(debug) << "Output size: " <<  outputData_h.size() * 4<< " (byte)";
 
   _unpacker.reset(new psrdada_cpp::effelsberg::edd::Unpacker( _proc_stream ));
+  CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 }
 
 
@@ -468,7 +471,7 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   }
   CUDA_ERROR_CHECK(cudaStreamSynchronize(_d2h_stream));
 
-  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to host (" << outputData_h.size() * sizeof(outputData_h.b()[0]) << " bytes)";
+  BOOST_LOG_TRIVIAL(debug) << "  - Copy data to host (" << outputData_h.size() * sizeof(outputData_h.a()[0]) << " bytes)";
 
   CUDA_ERROR_CHECK(
         cudaMemcpyAsync(static_cast<void *>(outputData_h.a_ptr()),
@@ -483,8 +486,8 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
 
   BOOST_LOG_TRIVIAL(debug) << "  - Calling handler";
   psrdada_cpp::RawBytes bytes(reinterpret_cast<char *>(outputData_h.b_ptr()),
-                 outputData_h.size() * sizeof(outputData_h.a_ptr()[0]),
-                 outputData_h.size() * sizeof(outputData_h.a_ptr()[0]));
+                 outputData_h.size() * sizeof(outputData_h.b_ptr()[0]),
+                 outputData_h.size() * sizeof(outputData_h.b_ptr()[0]));
 
   // The handler can't do anything asynchronously without a copy here
   // as it would be unsafe (given that it does not own the memory it
