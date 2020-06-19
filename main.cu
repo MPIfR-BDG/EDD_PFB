@@ -15,6 +15,8 @@
 #include "psrdada_cpp/dada_input_stream.hpp"
 #include "psrdada_cpp/dada_output_stream.hpp"
 #include "psrdada_cpp/dada_client_base.hpp"
+#include "psrdada_cpp/dada_null_sink.hpp"
+#include "psrdada_cpp/common.hpp"
 
 const size_t ERROR_IN_COMMAND_LINE = 1;
 const size_t SUCCESS = 0;
@@ -49,7 +51,7 @@ int main(int argc, char** argv)
         "string)");
   desc.add_options()(
         "output_type", po::value<std::string>(&output_type)->default_value(output_type),
-        "output type [dada, file]. Default is file."
+        "output type [dada, file, profile]. Default is file."
         );
   desc.add_options()(
         "output_key,o", po::value<std::string>(&outputfilename)->default_value(outputfilename),
@@ -93,7 +95,7 @@ int main(int argc, char** argv)
     }
 
     po::notify(vm);
-    if (vm.count("output_type") && (!(output_type == "dada" || output_type == "file") ))
+    if (vm.count("output_type") && (!(output_type == "dada" || output_type == "file" || output_type == "profile") ))
     {
       throw po::validation_error(po::validation_error::invalid_option_value, "output_type", output_type);
     }
@@ -173,12 +175,6 @@ int main(int argc, char** argv)
     }
   }
 
-	for (int i = 0; i < filterCoefficients.size(); i++)
-	{
-		std::cout << i << ": " << filterCoefficients[i] << std::endl;
-	}
-	exit(0);
-
   BOOST_LOG_TRIVIAL(info) << "Running with  output_type: " << output_type;
   psrdada_cpp::MultiLog log("PFB");
   psrdada_cpp::DadaClientBase client(input_key, log);
@@ -212,6 +208,24 @@ int main(int argc, char** argv)
     psrdada_cpp::DadaInputStream<decltype(ppf)> istream(input_key, log, ppf);
     istream.start();
   }
+     else if (output_type == "profile")
+    {
+      psrdada_cpp::NullSink sink;
+      CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, minv, maxv, filterCoefficients, sink);
+
+      std::vector<char> buffer(bufferSize);
+      cudaHostRegister(buffer.data(), buffer.size(), cudaHostRegisterPortable);
+      psrdada_cpp::RawBytes ib(buffer.data(), buffer.size(), buffer.size());
+      ppf.init(ib);
+      for (int i =0; i< 10; i++)
+      {
+        std::cout << "Profile Block: "<< i +1 << std::endl;
+        ppf(ib);
+      }
+    }
+
+
+
   else
   {
     throw std::runtime_error("Unknown oputput-type");
