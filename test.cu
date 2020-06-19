@@ -9,29 +9,44 @@ TEST(FIRFilterKernel, TestSum)
   // Test that the FIR filter kernel does the correct summations. For input
   // data values 1 and filter values 1 the output is the numebr of taps
 
-  std::size_t nSpectra = 16384;
 
   // test for multiple ntap and fft_length configurations
-  for (const size_t &nTaps : {4, 16})
+  for (const size_t &fftSize: {64, 128, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072})
   {
-    for (const size_t &fftSize: {64, 128})
+  for (const size_t &nTaps : {4, 16, 32})
     {
-      FilterCoefficientsType filterCoefficients(fftSize * nTaps, 1.f);
-      thrust::device_vector<float> input((nSpectra + nTaps - 1) * fftSize, 1.f);
-      thrust::device_vector<float> output(nSpectra * fftSize);
+				std::cerr << "Starting: " << fftSize << std::endl;
+				CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+				std::size_t nSpectra = 1024 * 131072 / fftSize;
+				FilterCoefficientsType filterCoefficients(fftSize * nTaps, 1.f);
+				thrust::device_vector<float> input((nSpectra + nTaps - 1) * fftSize, 1.f);
+				thrust::device_vector<float> output(nSpectra * fftSize);
+				CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+				//std::cerr << " - Allocated memory" << std::endl;
 
-      FIRFilter(thrust::raw_pointer_cast(&input[0]), thrust::raw_pointer_cast(&output[0]),
-          filterCoefficients, fftSize, nTaps, nSpectra, NULL);
+				FIRFilter(thrust::raw_pointer_cast(&input[0]),
+						thrust::raw_pointer_cast(&output[0]),
+						filterCoefficients,
+						fftSize, nTaps, nSpectra, NULL);
 
-      // FIRFilter shoould make shure that the output is large enough
-      EXPECT_EQ(output.size(), nSpectra * fftSize) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
+				CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+				//std::cerr << " - Executed kernel" << std::endl;
 
-      thrust::pair<thrust::device_vector<float>::iterator, thrust::device_vector<float>::iterator> minmax;
-      minmax = thrust::minmax_element(output.begin(), output.end());
+				// FIRFilter shoould make shure that the output is large enough
+				EXPECT_EQ(output.size(), nSpectra * fftSize) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
+				CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+				//std::cerr << " - Checked output size" << std::endl;
 
-      EXPECT_EQ(output[*minmax.first], nTaps) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
-      EXPECT_EQ(output[*minmax.second], nTaps) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
-    }
+				thrust::pair<thrust::device_vector<float>::iterator, thrust::device_vector<float>::iterator> minmax;
+				minmax = thrust::minmax_element(output.begin(), output.end());
+				cudaDeviceSynchronize();
+				//std::cerr << " - Got minmax " << std::endl;
+
+				EXPECT_EQ(output[*minmax.first], nTaps) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
+				EXPECT_EQ(output[*minmax.second], nTaps) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
+				cudaDeviceSynchronize();
+				//std::cerr << " - Checked minmax " << std::endl;
+		}
   }
 }
 

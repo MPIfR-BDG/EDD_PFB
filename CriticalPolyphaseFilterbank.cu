@@ -13,9 +13,13 @@ template <typename T> __device__ __forceinline__ T ldg(const T *ptr) {
 
 
 // constants for filter kenerl execution
-static const size_t THREADS_PER_BLOCK = 512; //
-static const size_t COEFF_SIZE =
-    512; // large enough to contain the filter coefficients
+static const size_t THREADS_PER_BLOCK = 256; //
+
+
+// COEFF_SIZE=CHANNELS_PER_BLOCK * TAPS
+
+static const size_t COEFF_SIZE = 1024;
+//    512; // large enough to contain the filter coefficients
 static const size_t DATA_SIZE =
     4096 - COEFF_SIZE; // optimize based on available shared memory of card
 static const size_t SUBBLOCK_SIZE =
@@ -141,7 +145,8 @@ void FIRFilter(const float *input,
     size_t fftSize, size_t nTaps, size_t nSpectra, cudaStream_t stream)
 {
   const size_t SM_Columns = (DATA_SIZE / THXPERWARP - nTaps + 1);
-  const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
+  const size_t nCUDAblocks_y = (size_t)floor((float)nSpectra / SM_Columns);
+  //const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
   if (nCUDAblocks_y > 65535)
   {
     BOOST_LOG_TRIVIAL(error) << "Requested " << nCUDAblocks_y
