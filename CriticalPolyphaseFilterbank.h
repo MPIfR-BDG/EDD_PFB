@@ -29,6 +29,7 @@ private:
   std::size_t nTaps;
   std::size_t fftSize;
   std::size_t nSpectra;
+  std::size_t nAccumulate;
   std::size_t _call_count;
   std::size_t inputBitDepth;
   std::size_t outputBitDepth;
@@ -58,13 +59,14 @@ public:
   *
   * @param[in] fftSize The number fo samples used for the fft
   * @param[in] nTaps The number of filter taps to use
-  * @param[in] nSpectra The number of output spectra to generate
+  * @param[in] nSpectra The number of output spectra to generate (defined by the input size)
+  * @param[in] nAccumulate The number of samples to integrate 
   * @param filter_coefficients The filter coefficients
   *
   * @detail The number of filter coefficients should be equal to ntaps x nchans.
   */
   explicit CriticalPolyphaseFilterbank(
-      std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra, std::size_t inputBitDepth, std::size_t outputBitDepth,  float minV, float maxV,
+      std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra, std::size_t inputBitDepth, std::size_t outputBitDepth, size_t nAccumulate, float minV, float maxV,
       FilterCoefficientsType const &filterCoefficients,
       HandlerType &handler);
 

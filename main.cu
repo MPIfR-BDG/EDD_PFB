@@ -27,7 +27,10 @@ int main(int argc, char** argv)
   key_t input_key;
   std::string output_type = "file";
 
-  unsigned int inputbitdepth, outputbitdepth;
+  unsigned int inputbitdepth;
+  unsigned int outputbitdepth = 32;
+
+  size_t naccumulate;
   unsigned int fft_length;
   unsigned int ntaps;
   std::string filtercoefficientsfile;
@@ -65,14 +68,18 @@ int main(int argc, char** argv)
                        "The number of bits per sample in the "
                        "packetiser output (8 or 12)");
 
-  desc.add_options()("outputbitdepth", po::value<unsigned int>(&outputbitdepth)->default_value(32),
-                       "The number of bits per sample in the "
-                       "PFB output (2, 4, 8, 16 or 32)");
+  //desc.add_options()("outputbitdepth", po::value<unsigned int>(&outputbitdepth)->default_value(32),
+  //                     "The number of bits per sample in the "
+  //                     "PFB output (2, 4, 8, 16 or 32)");
 
-  desc.add_options()("minv,x", po::value<float>(&minv),
-                       "Minimum value for output conversion");
-  desc.add_options()("maxv,y", po::value<float>(&maxv),
-                       "Maximum vlaue for output converison");
+  desc.add_options()("naccumulate,a",
+                       po::value<size_t>(&naccumulate)->default_value(1),
+                       "The number of input buffers to integrate into one output spectrum.");
+
+//  desc.add_options()("minv,x", po::value<float>(&minv),
+//                       "Minimum value for output conversion");
+//  desc.add_options()("maxv,y", po::value<float>(&maxv),
+//                       "Maximum vlaue for output converison");
   desc.add_options()(
         "filtercoefficients,f", po::value<std::string>(&filtercoefficientsfile)->default_value(filtercoefficientsfile),
         "txt file with filter coefficents. If empty, Kaiser coefficients will be calculated as default."
@@ -197,21 +204,21 @@ int main(int argc, char** argv)
   if (output_type == "file")
   {
     psrdada_cpp::SimpleFileWriter sink(outputfilename);
-    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, minv, maxv, filterCoefficients, sink);
+    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, sink);
     psrdada_cpp::DadaInputStream<decltype(ppf)> istream(input_key, log, ppf);
     istream.start();
   }
   else if (output_type == "dada")
   {
     psrdada_cpp::DadaOutputStream sink(psrdada_cpp::string_to_key(outputfilename), log);
-    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, minv, maxv, filterCoefficients, sink);
+    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, sink);
     psrdada_cpp::DadaInputStream<decltype(ppf)> istream(input_key, log, ppf);
     istream.start();
   }
      else if (output_type == "profile")
     {
       psrdada_cpp::NullSink sink;
-      CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, minv, maxv, filterCoefficients, sink);
+      CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, sink);
 
       std::vector<char> buffer(bufferSize);
       cudaHostRegister(buffer.data(), buffer.size(), cudaHostRegisterPortable);

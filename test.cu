@@ -15,7 +15,7 @@ TEST(FIRFilterKernel, TestSum)
   {
   for (const size_t &nTaps : {4, 16, 32})
     {
-				std::cerr << "Starting: " << fftSize << std::endl;
+				// std::cerr << "Starting: " << fftSize << std::endl;
 				CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 				std::size_t nSpectra = 1024 * 131072 / fftSize;
 				FilterCoefficientsType filterCoefficients(fftSize * nTaps, 1.f);
@@ -42,13 +42,47 @@ TEST(FIRFilterKernel, TestSum)
 				cudaDeviceSynchronize();
 				//std::cerr << " - Got minmax " << std::endl;
 
-				EXPECT_EQ(output[*minmax.first], nTaps) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
-				EXPECT_EQ(output[*minmax.second], nTaps) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
+				EXPECT_EQ(*minmax.first, nTaps) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
+				EXPECT_EQ(*minmax.second, nTaps) << "FFTSize: " << fftSize << ", " << "NTaps: " << nTaps ;
 				cudaDeviceSynchronize();
 				//std::cerr << " - Checked minmax " << std::endl;
 		}
   }
 }
+
+
+TEST(Integrate, Integrate)
+{
+
+  for (const size_t &fftSize: {64, 128, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072})
+  {
+  
+	// std::cerr << "Starting: " << fftSize << std::endl;
+	size_t nSpectra = 2048 * 131072 / fftSize;
+	thrust::device_vector<float> output(fftSize, 0.);
+	thrust::device_vector<float2> input(nSpectra  * (fftSize / 2 + 1), make_float2(1.0f, 1.0f));  // avoid thrust bug for float2
+	//thrust::device_vector<float> input(nSpectra  * (fftSize / 2 + 1) *  2, 1.0f);  // avoid thrust bug for float2
+
+	for (int i =0; (i < nSpectra) && (i < 64); i++)
+	{
+		input[i * (fftSize / 2 + 1)] = make_float2(23.f, 42.f); 
+	}
+
+	CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+  	integrateStripDCChannel<<<128, 1024>>>((float*) thrust::raw_pointer_cast(input.data()),
+              (float*) thrust::raw_pointer_cast(output.data()), fftSize, nSpectra);
+	CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+
+	thrust::pair<thrust::device_vector<float>::iterator, thrust::device_vector<float>::iterator> minmax;
+	minmax = thrust::minmax_element(output.begin(), output.end());
+	CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+
+	EXPECT_EQ(*minmax.first, nSpectra) << "FFTSize: " << fftSize;
+	EXPECT_EQ(*minmax.second, nSpectra) << "FFTSize: " << fftSize;
+	CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+  }
+}
+
 
 TEST(OutputPackAndStrip, 8bit)
 {
