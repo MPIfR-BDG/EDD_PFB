@@ -73,7 +73,7 @@ int main(int argc, char** argv)
   //                     "PFB output (2, 4, 8, 16 or 32)");
 
   desc.add_options()("naccumulate,a",
-                       po::value<size_t>(&naccumulate)->default_value(1),
+                       po::value<size_t>(&naccumulate)->default_value(1L),
                        "The number of input buffers to integrate into one output spectrum.");
 
 //  desc.add_options()("minv,x", po::value<float>(&minv),
@@ -123,6 +123,7 @@ int main(int argc, char** argv)
       return ERROR_IN_COMMAND_LINE;
     }
 
+   BOOST_LOG_TRIVIAL(debug) << " nAccumulate = " << naccumulate;
 
 	cudaStream_t stream;
   cudaStreamCreate( &stream );
@@ -201,6 +202,7 @@ int main(int argc, char** argv)
   size_t nSpectra = bufferSize * 8 / inputbitdepth / fft_length;
 
   BOOST_LOG_TRIVIAL(debug) << "Input buffer size " << bufferSize << " bytes. Generating " << nSpectra << " spectra of fft_length " << fft_length << " values.";
+  BOOST_LOG_TRIVIAL(debug) << " nAccumulate = " << naccumulate;
   if (output_type == "file")
   {
     psrdada_cpp::SimpleFileWriter sink(outputfilename);

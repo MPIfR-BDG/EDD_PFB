@@ -296,7 +296,7 @@ __global__ void integrateStripDCChannel(const float * input,
 
 template <class HandlerType>
 CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
-    std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra,std::size_t inputBitDepth, size_t outputBitDepth, size_t naccumulate, float minV, float maxV,
+    std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra,std::size_t inputBitDepth, size_t outputBitDepth, size_t nAccumulate, float minV, float maxV,
     FilterCoefficientsType const &filterCoefficients,  HandlerType &handler) :
   fftSize(fftSize), nTaps(nTaps), nSpectra(nSpectra),
   inputBitDepth(inputBitDepth), outputBitDepth(outputBitDepth), nAccumulate(nAccumulate), minV(minV), maxV(maxV),
@@ -488,11 +488,20 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   CUDA_ERROR_CHECK(cudaStreamSynchronize(_proc_stream));
 
   ////////////////////////////////////////////////////////////////////////
-  if ((_call_count == 2) || ((_call_count-1) % nAccumulate != 0)){
+  if ((_call_count == 2)){
+    return false;
+  }
+
+  if ((_call_count-1) % nAccumulate != 0){
+  
+    BOOST_LOG_TRIVIAL(debug) << "  - call count-1 = " << _call_count-1 << ", naccumulate = " << nAccumulate;
+
     return false;
   }
   CUDA_ERROR_CHECK(cudaStreamSynchronize(_d2h_stream));
 
+  outputData_d.swap();
+  outputData_h.swap();
 
   BOOST_LOG_TRIVIAL(debug) << "  - Copy data to host (" << outputData_h.size() * sizeof(outputData_h.a()[0]) << " bytes)";
 
@@ -505,12 +514,10 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   // zero output buffer after copy
   thrust::fill(thrust::cuda::par.on(_d2h_stream), outputData_d.b().begin(), outputData_d.b().end(), 0);
 
-  outputData_d.swap();
-  outputData_h.swap();
 
 
   ////////////////////////////////////////////////////////////////////////
-  if (_call_count == 3) {
+  if (_call_count-1 <= nAccumulate) {
     return false;
   }
 
