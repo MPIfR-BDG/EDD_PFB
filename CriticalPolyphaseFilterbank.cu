@@ -41,37 +41,34 @@ __global__ void CPF_Fir_shared_32bit(const float *__restrict__ d_data,
                                      const float *__restrict__ d_coeff,
                                      unsigned int fft_size, unsigned int nTaps,
                                      unsigned int nSpectra) {
-  float ftemp;
-  int memblock, localId, s_mempos, g_mempos, num_spectra, start_column, warpId,
-      itemp;
   int tx = threadIdx.x;
 
   __shared__ float s_data[DATA_SIZE];
   __shared__ float s_coeff[COEFF_SIZE];
 
-  warpId = ((int)tx / THXPERWARP);
-  memblock = warpId * SUBBLOCK_SIZE;
-  localId = tx -
-            ((int)tx / THXPERWARP) *
+  unsigned int warpId = tx / THXPERWARP;
+  unsigned int memblock = warpId * SUBBLOCK_SIZE;
+  unsigned int localId = tx -
+            (tx / THXPERWARP) *
                 THXPERWARP; // Calculates threads Id within a WARP
-  num_spectra = (DATA_SIZE / THXPERWARP - nTaps + 1);
+  unsigned int SM_Columns = (DATA_SIZE / THXPERWARP - nTaps + 1);
 
   // read input data from global memory a store them into shared memory
-  int constantnumber =
-      blockIdx.x * THXPERWARP + blockIdx.y * num_spectra * fft_size + localId;
+  size_t constantnumber =
+      blockIdx.x * THXPERWARP + blockIdx.y * SM_Columns * fft_size + localId;
   for (int i = 0; i < SUBBLOCK_SIZE; i++) {
-    start_column = memblock + i;
-    if (start_column < DATA_SIZE / THXPERWARP) {
-      s_mempos = start_column * THXPERWARP + localId;
-      g_mempos = start_column * fft_size + constantnumber;
+    size_t start_column = memblock + i;
+    size_t s_mempos = start_column * THXPERWARP + localId;
+		size_t g_mempos = start_column * fft_size + constantnumber;
+    if ((start_column < DATA_SIZE / THXPERWARP) && (g_mempos < (nSpectra + nTaps - 1) * fft_size)) {
       // TODO: we need ldg? NVProf NVVP
       s_data[s_mempos] = ldg(&d_data[g_mempos]);
     }
   }
 
-  itemp = (int)(nTaps / (THREADS_PER_BLOCK / THXPERWARP)) + 1;
+  int itemp = (int)(nTaps / (THREADS_PER_BLOCK / THXPERWARP)) + 1;
   for (int f = 0; f < itemp; f++) {
-    start_column = warpId + f * (THREADS_PER_BLOCK / THXPERWARP);
+    size_t start_column = warpId + f * (THREADS_PER_BLOCK / THXPERWARP);
     if (start_column < nTaps) {
       s_coeff[start_column * THXPERWARP + localId] =
           ldg(&d_coeff[start_column * fft_size + blockIdx.x * THXPERWARP +
@@ -83,18 +80,18 @@ __global__ void CPF_Fir_shared_32bit(const float *__restrict__ d_data,
   // Calculation of the FIR part
   for (int i = 0; i < SUBBLOCK_SIZE;
        i++) { // WARP loops through columns in it's sub-block
-    start_column = memblock + i;
-    if (start_column < num_spectra) {
-      s_mempos = start_column * THXPERWARP + localId;
-      ftemp = 0.0f;
+    size_t start_column = memblock + i;
+    if (start_column < SM_Columns) {
+      int s_mempos = start_column * THXPERWARP + localId;
+      float ftemp = 0.0f;
       for (int j = 0; j < nTaps; j++) {
         ftemp += s_coeff[j * THXPERWARP + localId] *
                  (s_data[s_mempos + j * THXPERWARP]);
       }
       // TODO: Check NVVP Bank conflicts in SM.
-      if (start_column * fft_size + constantnumber < fft_size * nSpectra) {
+      //if (start_column * fft_size + constantnumber < fft_size * nSpectra) {
         d_spectra[start_column * fft_size + constantnumber] = ftemp;
-      }
+      //}
     }
   }
 }
@@ -144,16 +141,17 @@ void FIRFilter(const float *input,
     float *output, const thrust::device_vector<float> &filterCoefficients,
     size_t fftSize, size_t nTaps, size_t nSpectra, cudaStream_t stream)
 {
-  const size_t SM_Columns = (DATA_SIZE / THXPERWARP - nTaps + 1);
-  const size_t nCUDAblocks_y = (size_t)floor((float)nSpectra / SM_Columns);
-  //const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
+  const int SM_Columns = (DATA_SIZE / THXPERWARP - nTaps + 1);
+  //const int nCUDAblocks_y = nSpectra / SM_Columns;
+  //const size_t nCUDAblocks_y = (size_t)floor((float)nSpectra / SM_Columns);
+  const size_t nCUDAblocks_y = (size_t)ceil((float)nSpectra / SM_Columns);
   if (nCUDAblocks_y > 65535)
   {
     BOOST_LOG_TRIVIAL(error) << "Requested " << nCUDAblocks_y
       << " nCUDAblocks_y - maximum is 65536! Try reducing the size"
          " of the input buffer (or increasing the number of channels).";
   }
-  const size_t nCUDAblocks_x = (size_t)(fftSize / THXPERWARP);
+  const int nCUDAblocks_x = fftSize / THXPERWARP;
 
   dim3 gridSize(nCUDAblocks_x, nCUDAblocks_y,
                 1);                        // nCUDAblocks_y goes through spectra
