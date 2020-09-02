@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cufft.h>
 #include <cuda.h>
+#include <queue>
 #include <thrust/device_vector.h>
 
 #include "psrdada_cpp/common.hpp"
@@ -10,6 +11,12 @@
 #include "psrdada_cpp/double_host_buffer.cuh"
 #include "psrdada_cpp/cuda_utils.hpp"
 #include "psrdada_cpp/effelsberg/edd/Unpacker.cuh"
+#include "psrdada_cpp/effelsberg/edd/DadaBufferLayout.hpp"
+
+
+#define BIT_MASK(bit) (1uL << (bit))
+#define TEST_BIT(value, bit) (((value)&BIT_MASK(bit)) ? 1 : 0)
+
 
 /* FIR Filter. */
 void FIRFilter(
@@ -31,9 +38,15 @@ private:
   std::size_t nSpectra;
   std::size_t nAccumulate;
   std::size_t _call_count;
+  std::size_t outputblock_counter;
   std::size_t inputBitDepth;
   std::size_t outputBitDepth;
   float minV, maxV;
+
+  std::queue<uint32_t> received_heaps;
+  std::queue<uint32_t> saturated_heaps;
+
+  std::shared_ptr< psrdada_cpp::effelsberg::edd::DadaBufferLayout > dadaBufferLayout;
 
   HandlerType &_handler;
 
@@ -66,8 +79,10 @@ public:
   * @detail The number of filter coefficients should be equal to ntaps x nchans.
   */
   explicit CriticalPolyphaseFilterbank(
-      std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra, std::size_t inputBitDepth, std::size_t outputBitDepth, size_t nAccumulate, float minV, float maxV,
-      FilterCoefficientsType const &filterCoefficients,
+      std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra,
+      std::size_t inputBitDepth, std::size_t outputBitDepth, size_t nAccumulate,
+      float minV, float maxV, FilterCoefficientsType const &filterCoefficients,
+      std::shared_ptr<psrdada_cpp::effelsberg::edd::DadaBufferLayout> dadaBufferLayout,
       HandlerType &handler);
 
   ~CriticalPolyphaseFilterbank();

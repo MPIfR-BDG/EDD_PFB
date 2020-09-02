@@ -4,7 +4,7 @@ project(pfb)
 find_package(CUDA REQUIRED)
 include_directories(${CUDA_TOOLKIT_INCLUDE})
 
-list(APPEND CUDA_NVCC_FLAGS -DENABLE_CUDA --std c++11 -Wno-deprecated-gpu-targets --ptxas-options=-v  --generate-line-info)
+list(APPEND CUDA_NVCC_FLAGS -DENABLE_CUDA --std c++14 -Wno-deprecated-gpu-targets --ptxas-options=-v  --generate-line-info)
 
 #add_subdirectory(thirdparty/psrdada_cpp)
 # ToDo: PSRDADA_CPP should declare directories
@@ -19,7 +19,10 @@ include(FindPackageHandleStandardArgs)
 find_path(
     PSRDADA_INCLUDE_DIR
     NAMES "multilog.h"
-    PATHS "${CMAKE_FRAMEWORK_PATH}/include" ${PSRDADA_INCLUDE_DIR}
+    PATHS "${CMAKE_FRAMEWORK_PATH}/include" 
+    "${CMAKE_FRAMEWORK_PATH}/include/psrdada" 
+    "/usr/local/include/psrdada"
+    ${PSRDADA_INCLUDE_DIR}
 )
 find_library(PSRDADA_LIBRARY NAMES psrdada)
 find_package_handle_standard_args(PSRDADA DEFAULT_MSG PSRDADA_LIBRARY PSRDADA_INCLUDE_DIR)
@@ -41,12 +44,14 @@ find_path(
     PATHS "${CMAKE_FRAMEWORK_PATH}/include" ${PSRDADA_CPP_DIR} ${PSRDADA_CPP_DIR}/include
 )
 find_library(PSRDADA_CPP_LIBRARY NAMES psrdada_cpp HINTS ${PSRDADA_CPP_DIR} ${PSRDADA_CPP_DIR}/lib)
+find_library(PSRDADA_CPPEFF_LIBRARY NAMES psrdada_cpp_effelsberg_edd HINTS ${PSRDADA_CPP_DIR} ${PSRDADA_CPP_DIR}/lib)
 find_package_handle_standard_args(PSRDADA DEFAULT_MSG PSRDADA_LIBRARY PSRDADA_INCLUDE_DIR)
 set(PSRDADA_CPP_INCLUDE_DIRS ${PSRDADA_CPP_INCLUDE_DIR})
 set(PSRDADA_CPP_LIBRARIES
 	${PSRDADA_CPP_LIBRARY}
-	psrdada_cpp_effelsberg_edd
+  ${PSRDADA_CPPEFF_LIBRARY}
 	)
+message(STATUS " - PSRDADA_CPP_LIBRARIES "${PSRDADA_CPP_LIBRARIES} )
 
 ########################################################################
 
@@ -70,3 +75,8 @@ cuda_add_executable(pfb_test test.cu)
 target_link_libraries(pfb_test gtest gtest_main pthread  ${CUDA_CUFFT_LIBRARIES} ${Boost_LIBRARIES}  ${PSRDADA_CPP_LIBRARIES} ${PSRDADA_LIBRARIES})
 add_test(PolyphaseFilterBank pfb_test)
 
+
+message(STATUS " - GTEST include directory" ${gtest_SOURCE_DIR}/include)
+message(STATUS " - BOOST include directory"  ${Boost_INCLUDE_DIR})
+message(STATUS " - PSRDADA include directory"  ${PSRDADA_INCLUDE_DIRS})
+message(STATUS " - PSRDADACPP include directory"  ${PSRDADA_CPP_INCLUDE_DIRS} )

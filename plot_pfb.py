@@ -19,24 +19,33 @@ for line in header.split('\n'):
         print("Found fft size: {}".format(fftsize))
         break
 
-data = np.fromfile(ipf, dtype=np.complex64)
-
 nchannels = fftsize / 2
-nspectra = data.size / nchannels 
+
+dt = "{}complex64,2int32".format(nchannels)
+data = np.fromfile(ipf, dtype=dt)
+
+
+
+nspectra = data['f0'].size / nchannels 
 print("{} spectra in data".format(nspectra))
-I = data.reshape(nspectra, nchannels)
+I = data['f0'].reshape(nspectra, nchannels)
 
 plt.figure()
-plt.subplot(121)
+plt.subplot(131)
 plt.imshow(10 * np.log10(abs(I*I)), aspect='auto')
 plt.xlabel('Channel No.')
 plt.ylabel('Time [a.u.]')
 
-plt.subplot(122)
+plt.subplot(132)
 plt.plot(10 * np.log10(abs(I*I).sum(axis=0)))
 plt.xlabel('Channel No.')
 plt.ylabel('PSD [dB]')
 plt.suptitle(args.filename[0])
+
+plt.subplot(133)
+plt.plot(data['f1'][:,0], label="Received heaps")
+plt.plot(data['f1'][:,1], label="Saturated heaps")
+
+
 plt.tight_layout()
 plt.show()
-

@@ -295,10 +295,12 @@ __global__ void integrateStripDCChannel(const float * input,
 template <class HandlerType>
 CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
     std::size_t fftSize, std::size_t nTaps, std::size_t nSpectra,std::size_t inputBitDepth, size_t outputBitDepth, size_t nAccumulate, float minV, float maxV,
-    FilterCoefficientsType const &filterCoefficients,  HandlerType &handler) :
+    FilterCoefficientsType const &filterCoefficients,
+      std::shared_ptr<psrdada_cpp::effelsberg::edd::DadaBufferLayout> dadaBufferLayout,
+    HandlerType &handler) :
   fftSize(fftSize), nTaps(nTaps), nSpectra(nSpectra),
   inputBitDepth(inputBitDepth), outputBitDepth(outputBitDepth), nAccumulate(nAccumulate), minV(minV), maxV(maxV),
-  filterCoefficients(filterCoefficients),  _handler(handler), _call_count(0)
+  filterCoefficients(filterCoefficients), dadaBufferLayout(dadaBufferLayout), _handler(handler), _call_count(0)
 {
   BOOST_LOG_TRIVIAL(info)
       << "Creating new CriticalPolyphaseFilterbank instance with parameters: \n"
@@ -337,7 +339,7 @@ CriticalPolyphaseFilterbank<HandlerType>::CriticalPolyphaseFilterbank(
     throw std::runtime_error("Bad size of buffer");
   }
   outputData_d.resize(fftSize * outputBitDepth / 32);
-  outputData_h.resize(outputData_d.size());
+  outputData_h.resize(outputData_d.size() + 2);
 
   thrust::fill(thrust::device, outputData_d.a().begin(), outputData_d.b().end(), 0);
   thrust::fill(thrust::device, outputData_d.b().begin(), outputData_d.b().end(), 0);
@@ -425,6 +427,24 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
                                   inputData.size() * sizeof(inputData.a()[0]),
                                   cudaMemcpyHostToDevice,
                                  _h2d_stream));
+
+
+  size_t received = 0;
+  size_t saturated = 0;
+
+  for (size_t i = 0; i < dadaBufferLayout->getNHeaps(); i++)
+  {
+    uint64_t *sci = (uint64_t*) (block.ptr() + dadaBufferLayout->sizeOfData() + dadaBufferLayout->sizeOfGap() + i * 8);
+   received += !TEST_BIT(*sci, 63);
+   saturated += TEST_BIT(*sci, 1);
+  }
+  received_heaps.push(received);
+  saturated_heaps.push(saturated);
+
+  BOOST_LOG_TRIVIAL(debug) << "  - Input block " << _call_count<< "\n"
+  << "       - Received heaps: " << received_heaps.back() << "\n"
+  << "       - Saturated heaps: " << saturated_heaps.back();
+
   ////////////////////////////////////////////////////////////////////////
   if (_call_count == 1) {
     return false;
@@ -506,20 +526,29 @@ bool CriticalPolyphaseFilterbank<HandlerType>::operator()(psrdada_cpp::RawBytes 
   CUDA_ERROR_CHECK(
         cudaMemcpyAsync(static_cast<void *>(outputData_h.a_ptr()),
                         static_cast<void *>(outputData_d.b_ptr()),
-                        outputData_h.size() * sizeof(outputData_h.a_ptr()[0]),
+                        outputData_d.size() * sizeof(outputData_h.a_ptr()[0]),
                         cudaMemcpyDeviceToHost, _d2h_stream));
+  outputData_h.a_ptr()[outputData_h.size()-2] = 0;
+  outputData_h.a_ptr()[outputData_h.size()-1] = 0;
+  for (int i = 0; i < nAccumulate; i++)
+  {
+    outputData_h.a_ptr()[outputData_h.size()-2] += received_heaps.front();
+    received_heaps.pop();
+    outputData_h.a_ptr()[outputData_h.size()-1] += saturated_heaps.front();
+    saturated_heaps.pop();
+  }
 
   // zero output buffer after copy
   thrust::fill(thrust::cuda::par.on(_d2h_stream), outputData_d.b().begin(), outputData_d.b().end(), 0);
-
-
 
   ////////////////////////////////////////////////////////////////////////
   if (_call_count-1 <= nAccumulate) {
     return false;
   }
-
-  BOOST_LOG_TRIVIAL(debug) << "  - Calling handler";
+  outputblock_counter++;
+  BOOST_LOG_TRIVIAL(debug) << "  - Calling handler for outpublock " << outputblock_counter << "\n"
+  << "       - Received heaps: " << outputData_h.b_ptr()[outputData_h.size()-2] << "\n"
+  << "       - Saturated heaps: " << outputData_h.b_ptr()[outputData_h.size()-1];
   psrdada_cpp::RawBytes bytes(reinterpret_cast<char *>(outputData_h.b_ptr()),
                  outputData_h.size() * sizeof(outputData_h.b_ptr()[0]),
                  outputData_h.size() * sizeof(outputData_h.b_ptr()[0]));

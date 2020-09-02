@@ -6,9 +6,11 @@
 #include <iomanip>
 #include "boost/program_options.hpp"
 #include <ctime>
+#include <memory>
 
 #include "CriticalPolyphaseFilterbank.h"
 
+#include "psrdada_cpp/effelsberg/edd/DadaBufferLayout.hpp"
 #include "psrdada_cpp/cli_utils.hpp"
 #include "psrdada_cpp/multilog.hpp"
 #include "psrdada_cpp/simple_file_writer.hpp"
@@ -186,41 +188,43 @@ int main(int argc, char** argv)
   BOOST_LOG_TRIVIAL(info) << "Running with  output_type: " << output_type;
   psrdada_cpp::MultiLog log("PFB");
   psrdada_cpp::DadaClientBase client(input_key, log);
-  size_t bufferSize = client.data_buffer_size(); // buffer size in bit
-  if ((bufferSize * 8) % inputbitdepth!= 0)
+  size_t bufferSize = client.data_buffer_size(); // buffer size in byte
+
+  std::shared_ptr<psrdada_cpp::effelsberg::edd::DadaBufferLayout> dadaBufferLayout = std::make_shared<psrdada_cpp::effelsberg::edd::DadaBufferLayout>(input_key, 4096 * inputbitdepth / 8, 1);
+
+  BOOST_LOG_TRIVIAL(info) << "Using input Buffer with key " << input_key << " of size " << dadaBufferLayout->getBufferSize() << " bytes, buffer layout:" << "\n"
+    << "   - size of data: " << dadaBufferLayout->sizeOfData() << " bytes (" << dadaBufferLayout->getNHeaps()  << "heaps a " << dadaBufferLayout->getHeapSize() << " bytes)" << "\n"
+    << "   - size of gap: " << dadaBufferLayout->sizeOfGap() << " bytes" << "\n"
+    << "   - size of side channel data: " << dadaBufferLayout->sizeOfSideChannelData() << " bytes" << "\n";
+
+  if ((dadaBufferLayout->sizeOfData() * 8 / inputbitdepth) % fft_length != 0)
   {
-      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a natural number of " << inputbitdepth << " bit encoded values!.";
+      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Size of data in buffer " << dadaBufferLayout->sizeOfData() << " bytes cannot hold a multiple of " << fft_length << " values of "<< inputbitdepth << " bit!.";
       throw std::runtime_error("EDD PFB: Bad size of input buffer.");
   }
 
-  if ((bufferSize * 8 / inputbitdepth) % fft_length != 0)
-  {
-      BOOST_LOG_TRIVIAL(error) << "EDD PFB: Buffer size " << bufferSize << " bytes cannot hold a multiple of " << fft_length << " values of "<< inputbitdepth << " bit!.";
-      throw std::runtime_error("EDD PFB: Bad size of input buffer.");
-  }
+  size_t nSpectra = dadaBufferLayout->sizeOfData() * 8 / inputbitdepth / fft_length;
 
-  size_t nSpectra = bufferSize * 8 / inputbitdepth / fft_length;
-
-  BOOST_LOG_TRIVIAL(debug) << "Input buffer size " << bufferSize << " bytes. Generating " << nSpectra << " spectra of fft_length " << fft_length << " values.";
+  BOOST_LOG_TRIVIAL(debug) << "Inputdata size " << dadaBufferLayout->sizeOfData() << " bytes. Generating " << nSpectra << " spectra of fft_length " << fft_length << " values.";
   BOOST_LOG_TRIVIAL(debug) << " nAccumulate = " << naccumulate;
   if (output_type == "file")
   {
     psrdada_cpp::SimpleFileWriter sink(outputfilename);
-    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, sink);
+    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, dadaBufferLayout, sink);
     psrdada_cpp::DadaInputStream<decltype(ppf)> istream(input_key, log, ppf);
     istream.start();
   }
   else if (output_type == "dada")
   {
     psrdada_cpp::DadaOutputStream sink(psrdada_cpp::string_to_key(outputfilename), log);
-    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, sink);
+    CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, dadaBufferLayout, sink);
     psrdada_cpp::DadaInputStream<decltype(ppf)> istream(input_key, log, ppf);
     istream.start();
   }
      else if (output_type == "profile")
     {
       psrdada_cpp::NullSink sink;
-      CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, sink);
+      CriticalPolyphaseFilterbank<decltype(sink)> ppf(fft_length, ntaps, nSpectra, inputbitdepth, outputbitdepth, naccumulate, minv, maxv, filterCoefficients, dadaBufferLayout, sink);
 
       std::vector<char> buffer(bufferSize);
       cudaHostRegister(buffer.data(), buffer.size(), cudaHostRegisterPortable);
