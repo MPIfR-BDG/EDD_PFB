@@ -282,10 +282,10 @@ __global__ void integrateStripDCChannel(const float * input,
     for(uint32_t j = 0; j< nspectra; j++)
     {
 	    size_t offset = j * (fftSize / 2 + 1) * 2;
-	    v += input[offset + i + 2];
+	    v += input[offset + i + 2] * input[offset + i + 2];
     }
 
-    output[i] += v; 
+    output[i] += v;
   }
 }
 
